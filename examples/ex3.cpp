@@ -50,7 +50,6 @@ using namespace mfem;
 
 // Exact solution, E, and r.h.s., f. See below for implementation.
 void E_exact(const Vector &, Vector &);
-void Q_exact(const Vector &, Vector &);
 void f_exact(const Vector &, Vector &);
 double freq = 1.0, kappa;
 int dim;
@@ -64,7 +63,6 @@ int main(int argc, char *argv[])
    bool pa = false;
    const char *device_config = "cpu";
    bool visualization = 1;
-   int ref_levels = 0;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -82,8 +80,6 @@ int main(int argc, char *argv[])
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
-   args.AddOption(&ref_levels, "-ref", "--ref-levels", "");
-
    args.Parse();
    if (!args.Good())
    {
@@ -110,23 +106,41 @@ int main(int argc, char *argv[])
    //    largest number that gives a final mesh with no more than 50,000
    //    elements.
    {
-      //int ref_levels = (int)floor(log(50000./mesh->GetNE())/log(2.)/dim);
-       std::cout << "ref_levels = " << ref_levels << std::endl;
+      int ref_levels = (int)floor(log(50000./mesh->GetNE())/log(2.)/dim);
       for (int l = 0; l < ref_levels; l++)
       {
          mesh->UniformRefinement();
       }
    }
-   //mesh->ReorientTetMesh();
+   mesh->ReorientTetMesh();
 
    // 5. Define a finite element space on the mesh. Here we use the Nedelec
    //    finite elements of the specified order.
-   FiniteElementCollection *fec = new RT_FECollection(order, dim);
+   FiniteElementCollection *fec = new ND_FECollection(order, dim);
    FiniteElementSpace *fespace = new FiniteElementSpace(mesh, fec);
    cout << "Number of finite element unknowns: "
         << fespace->GetTrueVSize() << endl;
 
-   
+   // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
+   //    In this example, the boundary conditions are defined by marking all
+   //    the boundary attributes from the mesh as essential (Dirichlet) and
+   //    converting them to a list of true dofs.
+   Array<int> ess_tdof_list;
+   if (mesh->bdr_attributes.Size())
+   {
+      Array<int> ess_bdr(mesh->bdr_attributes.Max());
+      ess_bdr = 1;
+      fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+   }
+
+   // 7. Set up the linear form b(.) which corresponds to the right-hand side
+   //    of the FEM linear system, which in this case is (f,phi_i) where f is
+   //    given by the function f_exact and phi_i are the basis functions in the
+   //    finite element fespace.
+   VectorFunctionCoefficient f(sdim, f_exact);
+   LinearForm *b = new LinearForm(fespace);
+   b->AddDomainIntegrator(new VectorFEDomainLFIntegrator(f));
+   b->Assemble();
 
    // 8. Define the solution vector x as a finite element grid function
    //    corresponding to fespace. Initialize x by projecting the exact
@@ -134,20 +148,90 @@ int main(int argc, char *argv[])
    //    when eliminating the non-homogeneous boundary condition to modify the
    //    r.h.s. vector b.
    GridFunction x(fespace);
-   //VectorFunctionCoefficient E(sdim, E_exact);
-   //x.ProjectCoefficient(E);
-    
-   VectorFunctionCoefficient Q(sdim, Q_exact);
-   x.ProjectCoefficient(Q);
-    
-    const IntegrationRule* irs[Geometry::NumGeom];
-    for (int i = 0; i < Geometry::NumGeom; i++)
-       irs[i] = &(IntRules.Get(i, 12));
+   VectorFunctionCoefficient E(sdim, E_exact);
+   x.ProjectCoefficient(E);
 
-     // 8a. Compute and print the L^2 norm of the error.
-    cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
-    cout << "Made it" << endl;
+   // 9. Set up the bilinear form corresponding to the EM diffusion operator
+   //    curl muinv curl + sigma I, by adding the curl-curl and the mass domain
+   //    integrators.
+   Coefficient *muinv = new ConstantCoefficient(1.0);
+   Coefficient *sigma = new ConstantCoefficient(1.0);
+   BilinearForm *a = new BilinearForm(fespace);
+   if (pa) { a->SetAssemblyLevel(AssemblyLevel::PARTIAL); }
+   a->AddDomainIntegrator(new CurlCurlIntegrator(*muinv));
+   a->AddDomainIntegrator(new VectorFEMassIntegrator(*sigma));
 
+   // 10. Assemble the bilinear form and the corresponding linear system,
+   //     applying any necessary transformations such as: eliminating boundary
+   //     conditions, applying conforming constraints for non-conforming AMR,
+   //     static condensation, etc.
+   if (static_cond) { a->EnableStaticCondensation(); }
+   a->Assemble();
+
+   OperatorPtr A;
+   Vector B, X;
+   a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B);
+
+   cout << "Size of linear system: " << A->Height() << endl;
+
+   // 11. Solve the linear system A X = B.
+   if (pa) // Jacobi preconditioning in partial assembly mode
+   {
+      OperatorJacobiSmoother M(*a, ess_tdof_list);
+      PCG(*A, M, B, X, 1, 1000, 1e-12, 0.0);
+   }
+   else
+   {
+#ifndef MFEM_USE_SUITESPARSE
+      // 11. Define a simple symmetric Gauss-Seidel preconditioner and use it to
+      //     solve the system Ax=b with PCG.
+      GSSmoother M((SparseMatrix&)(*A));
+      PCG(*A, M, B, X, 1, 500, 1e-12, 0.0);
+#else
+      // 11. If MFEM was compiled with SuiteSparse, use UMFPACK to solve the
+      //     system.
+      UMFPackSolver umf_solver;
+      umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
+      umf_solver.SetOperator(*A);
+      umf_solver.Mult(B, X);
+#endif
+   }
+
+   // 12. Recover the solution as a finite element grid function.
+   a->RecoverFEMSolution(X, *b, x);
+
+   // 13. Compute and print the L^2 norm of the error.
+   cout << "\n|| E_h - E ||_{L^2} = " << x.ComputeL2Error(E) << '\n' << endl;
+
+   // 14. Save the refined mesh and the solution. This output can be viewed
+   //     later using GLVis: "glvis -m refined.mesh -g sol.gf".
+   {
+      ofstream mesh_ofs("refined.mesh");
+      mesh_ofs.precision(8);
+      mesh->Print(mesh_ofs);
+      ofstream sol_ofs("sol.gf");
+      sol_ofs.precision(8);
+      x.Save(sol_ofs);
+   }
+
+   // 15. Send the solution by socket to a GLVis server.
+   if (visualization)
+   {
+      char vishost[] = "localhost";
+      int  visport   = 19916;
+      socketstream sol_sock(vishost, visport);
+      sol_sock.precision(8);
+      sol_sock << "solution\n" << *mesh << x << flush;
+   }
+
+   // 16. Free the used memory.
+   delete a;
+   delete sigma;
+   delete muinv;
+   delete b;
+   delete fespace;
+   delete fec;
+   delete mesh;
 
    return 0;
 }
@@ -166,34 +250,6 @@ void E_exact(const Vector &x, Vector &E)
       E(0) = sin(kappa * x(1));
       E(1) = sin(kappa * x(0));
       if (x.Size() == 3) { E(2) = 0.0; }
-   }
-}
-
-void Q_exact(const Vector &x, Vector &Q)
-{
-   if (dim == 4)
-   {
-      Q(0) = sin(kappa * x(1));
-      Q(1) = sin(kappa * x(2));
-      Q(2) = sin(kappa * x(3));
-      Q(3) = sin(kappa * x(0));
-//        Q(0) = x(0) * x(1) * x(3) * x(4);
-//        Q(1) = x(0) * x(1) * x(3) * x(4);
-//        Q(2) = x(0) * x(1) * x(3) * x(4);
-//        Q(3) = x(0) * x(1) * x(3) * x(4);
-
-
-   }
-  if (dim == 3)
-  {
-      Q(0) = sin(kappa * x(1));
-      Q(1) = sin(kappa * x(2));
-      Q(2) = sin(kappa * x(0));
-  }else
-   {
-      Q(0) = sin(kappa * x(1));
-      Q(1) = sin(kappa * x(0));
-      if (x.Size() == 3) { Q(2) = 0.0; }
    }
 }
 

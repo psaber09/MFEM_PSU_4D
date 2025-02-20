@@ -64,197 +64,146 @@
 using namespace std;
 using namespace mfem;
 
-// Exact solution, E, and r.h.s., f. See below for implementation.
-void U_function(const Vector &, Vector &);
-//void velocity_function(const Vector &x, Vector &v);
-double E_exact(const Vector &);
-double f_exact(const Vector &);
-double freq = 1.0;
-double kappa = 1.0;
-int dim;
-
 int main(int argc, char *argv[])
 {
-    // 1. Parse command-line options.
-    const char *mesh_file = "../data/star.mesh";
-    int order = 1;
-    bool static_cond = false;
-    bool pa = false;
-    const char *device_config = "cpu";
-    bool visualization = true;
-    int ref_levels = 0;
-    
-    OptionsParser args(argc, argv);
-    args.AddOption(&mesh_file, "-m", "--mesh",
-                   "Mesh file to use.");
-    args.AddOption(&order, "-o", "--order",
-                   "Finite element order (polynomial degree) or -1 for"
-                   " isoparametric space.");
-    args.AddOption(&static_cond, "-sc", "--static-condensation", "-no-sc",
-                   "--no-static-condensation", "Enable static condensation.");
-    args.AddOption(&pa, "-pa", "--partial-assembly", "-no-pa",
-                   "--no-partial-assembly", "Enable Partial Assembly.");
-    args.AddOption(&device_config, "-d", "--device",
-                   "Device configuration string, see Device::Configure().");
-    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
-                   "--no-visualization",
-                   "Enable or disable GLVis visualization.");
-    args.AddOption(&ref_levels, "-ref", "--ref-levels", "");
-    args.Parse();
-    if (!args.Good())
-    {
-        args.PrintUsage(cout);
-        return 1;
-    }
-    args.PrintOptions(cout);
-    
-    // 2. Enable hardware devices such as GPUs, and programming models such as
-    //    CUDA, OCCA, RAJA and OpenMP based on command line options.
-    Device device(device_config);
-    device.Print();
-    
-    // 3. Read the mesh from the given mesh file. We can handle triangular,
-    //    quadrilateral, tetrahedral, hexahedral, surface and volume meshes with
-    //    the same code.
-    Mesh *mesh = new Mesh(mesh_file, 1, 1);
-    dim = mesh->Dimension();
-    std::cout << "Dimension: " << dim << std::endl;
-    int sdim = mesh->SpaceDimension();
-    
-    // 4. Refine the mesh to increase the resolution. In this example we do
-    //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
-    //    largest number that gives a final mesh with no more than 50,000
-    //    elements.
-    {
-        //int ref_levels = (int)floor(log(50000./mesh->GetNE())/log(2.)/dim);
-        std::cout << "ref_levels = " << ref_levels << std::endl;
-        for (int l = 0; l < ref_levels; l++)
-        {
-            mesh->UniformRefinement();
-        }
-    }
-    
-    // 5. Define a finite element space on the mesh. Here we use continuous
-    //    Lagrange finite elements of the specified order. If order < 1, we
-    //    instead use an isoparametric/isogeometric space.
-    FiniteElementCollection *fec;
-    bool delete_fec;
-    if (order > 0)
-    {
-        //fec = new H1_FECollection(order, dim);
-        fec = new DG_FECollection(order, dim);
+   // 1. Parse command-line options.
+   const char *mesh_file = "../data/star.mesh";
+   int order = 1;
+   bool static_cond = false;
+   bool pa = false;
+   const char *device_config = "cpu";
+   bool visualization = true;
 
-        delete_fec = true;
-    }
-    else if (mesh->GetNodes())
-    {
-        fec = mesh->GetNodes()->OwnFEC();
-        delete_fec = false;
-        cout << "Using isoparametric FEs: " << fec->Name() << endl;
-    }
-    else
-    {
-        fec = new DG_FECollection(order = 1, dim);
-        delete_fec = true;
-    }
-    FiniteElementSpace *fespace = new FiniteElementSpace(mesh, fec);
-    cout << "Number of finite element unknowns: "
-    << fespace->GetTrueVSize() << endl;
-    
-    // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
-    //    In this example, the boundary conditions are defined by marking all
-    //    the boundary attributes from the mesh as essential (Dirichlet) and
-    //    converting them to a list of true dofs.
-    Array<int> ess_tdof_list;
-    if (mesh->bdr_attributes.Size())
-    {
-        Array<int> ess_bdr(mesh->bdr_attributes.Max());
-        ess_bdr = 1;
-        fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
-    }
-    
-    // 7. Set up the linear form b(.) which corresponds to the right-hand side
-    //    of the FEM linear system, which in this case is (f,phi_i) where f is
-    //    given by the function f_exact and phi_i are the basis functions in the
-    //    finite element fespace.
-    FunctionCoefficient f(f_exact);
-    LinearForm *b = new LinearForm(fespace);
-    b->AddDomainIntegrator(new DomainLFIntegrator(f));
-    b->Assemble();
-    ConstantCoefficient one(1.0);
-    
-    /*
-     LinearForm *b = new LinearForm(fespace);
-     b->AddDomainIntegrator(new DomainLFIntegrator(one));
-     b->Assemble();
-     */
-    
-    
-    // 8. Define the solution vector x as a finite element grid function
-    //    corresponding to fespace. Initialize x by projecting the exact
-    //    solution. Note that only values from the boundary edges will be used
-    //    when eliminating the non-homogeneous boundary condition to modify the
-    //    r.h.s. vector b.
-    GridFunction x(fespace);
-    
-    VectorFunctionCoefficient U(dim, U_function);
+   OptionsParser args(argc, argv);
+   args.AddOption(&mesh_file, "-m", "--mesh",
+                  "Mesh file to use.");
+   args.AddOption(&order, "-o", "--order",
+                  "Finite element order (polynomial degree) or -1 for"
+                  " isoparametric space.");
+   args.AddOption(&static_cond, "-sc", "--static-condensation", "-no-sc",
+                  "--no-static-condensation", "Enable static condensation.");
+   args.AddOption(&pa, "-pa", "--partial-assembly", "-no-pa",
+                  "--no-partial-assembly", "Enable Partial Assembly.");
+   args.AddOption(&device_config, "-d", "--device",
+                  "Device configuration string, see Device::Configure().");
+   args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
+                  "--no-visualization",
+                  "Enable or disable GLVis visualization.");
+   args.Parse();
+   if (!args.Good())
+   {
+      args.PrintUsage(cout);
+      return 1;
+   }
+   args.PrintOptions(cout);
 
-    FunctionCoefficient E(E_exact);
-    //FunctionCoefficient Q(Q_exact);
-    x.ProjectCoefficient(E);
-    //x = 0;
-    
-    const IntegrationRule* irs[Geometry::NumGeom];
-    for (int i = 0; i < Geometry::NumGeom; i++)
-    {
-        if (i == 4)
-        {
-            // Tet Int Rule
-            irs[i] = &(IntRules.Get(i, 10));
-        }else
-        {
-            // Everything else
-            irs[i] = &(IntRules.Get(i, 16));
-        }
-    }
+   // 2. Enable hardware devices such as GPUs, and programming models such as
+   //    CUDA, OCCA, RAJA and OpenMP based on command line options.
+   Device device(device_config);
+   device.Print();
 
- 
+   // 3. Read the mesh from the given mesh file. We can handle triangular,
+   //    quadrilateral, tetrahedral, hexahedral, surface and volume meshes with
+   //    the same code.
+   Mesh mesh(mesh_file, 1, 1);
+   int dim = mesh.Dimension();
 
-    // 8a. Compute and print the L^2 norm of the error.
-   //cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(E, irs) << '\n' << endl;
+   // 4. Refine the mesh to increase the resolution. In this example we do
+   //    'ref_levels' of uniform refinement. We choose 'ref_levels' to be the
+   //    largest number that gives a final mesh with no more than 50,000
+   //    elements.
+   {
+      int ref_levels =
+         (int)floor(log(50000./mesh.GetNE())/log(2.)/dim);
+      for (int l = 0; l < ref_levels; l++)
+      {
+         mesh.UniformRefinement();
+      }
+   }
+
+   // 5. Define a finite element space on the mesh. Here we use continuous
+   //    Lagrange finite elements of the specified order. If order < 1, we
+   //    instead use an isoparametric/isogeometric space.
+   FiniteElementCollection *fec;
+   bool delete_fec;
+   if (order > 0)
+   {
+      fec = new H1_FECollection(order, dim);
+      delete_fec = true;
+   }
+   else if (mesh.GetNodes())
+   {
+      fec = mesh.GetNodes()->OwnFEC();
+      delete_fec = false;
+      cout << "Using isoparametric FEs: " << fec->Name() << endl;
+   }
+   else
+   {
+      fec = new H1_FECollection(order = 1, dim);
+      delete_fec = true;
+   }
+   FiniteElementSpace fespace(&mesh, fec);
+   cout << "Number of finite element unknowns: "
+        << fespace.GetTrueVSize() << endl;
+
+   // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
+   //    In this example, the boundary conditions are defined by marking all
+   //    the boundary attributes from the mesh as essential (Dirichlet) and
+   //    converting them to a list of true dofs.
+   Array<int> ess_tdof_list;
+   if (mesh.bdr_attributes.Size())
+   {
+      Array<int> ess_bdr(mesh.bdr_attributes.Max());
+      ess_bdr = 1;
+      fespace.GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+   }
+
+   // 7. Set up the linear form b(.) which corresponds to the right-hand side of
+   //    the FEM linear system, which in this case is (1,phi_i) where phi_i are
+   //    the basis functions in the finite element fespace.
+   LinearForm b(&fespace);
+   ConstantCoefficient one(1.0);
+   b.AddDomainIntegrator(new DomainLFIntegrator(one));
+   b.Assemble();
+
+   // 8. Define the solution vector x as a finite element grid function
+   //    corresponding to fespace. Initialize x with initial guess of zero,
+   //    which satisfies the boundary conditions.
+   GridFunction x(&fespace);
+   x = 0.0;
 
    // 9. Set up the bilinear form a(.,.) on the finite element space
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
    //    domain integrator.
-   BilinearForm *a = new BilinearForm(fespace);
-   if (pa) { a->SetAssemblyLevel(AssemblyLevel::PARTIAL); }
-    
-   constexpr double alpha = -1.0;
-   //a->AddDomainIntegrator(new MixedScalarWeakDivergenceIntegrator(U));
-   a->AddDomainIntegrator(new ConvectionIntegrator(U, alpha));
-//   a->AddInteriorFaceIntegrator(new DGTraceIntegrator(U, alpha));
-//   a->AddBdrFaceIntegrator(new DGTraceIntegrator(U, alpha));
-    a->AddInteriorFaceIntegrator(
-       new NonconservativeDGTraceIntegrator(U, alpha));
-    a->AddBdrFaceIntegrator(
-       new NonconservativeDGTraceIntegrator(U, alpha));
+   BilinearForm a(&fespace);
+   if (pa) { a.SetAssemblyLevel(AssemblyLevel::PARTIAL); }
+   a.AddDomainIntegrator(new DiffusionIntegrator(one));
 
-    
    // 10. Assemble the bilinear form and the corresponding linear system,
    //     applying any necessary transformations such as: eliminating boundary
    //     conditions, applying conforming constraints for non-conforming AMR,
    //     static condensation, etc.
-   if (static_cond) { a->EnableStaticCondensation(); }
-   a->Assemble();
+   if (static_cond) { a.EnableStaticCondensation(); }
+   a.Assemble();
 
    OperatorPtr A;
    Vector B, X;
-   a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B); // x = x_ess + X
-   // A*X = f - A*x_ess = B
+   a.FormLinearSystem(ess_tdof_list, x, b, A, X, B);
 
    cout << "Size of linear system: " << A->Height() << endl;
+   
+    /*std::ofstream output("logfile.txt");
+    SparseMatrix& A_copy = (SparseMatrix&)(*A);
+    A_copy.ToDenseMatrix();
+    for (int i=1; i<A->Height(); i++) {
+        for (int j= 1; j<A->Width(); j++) {
+            output << A_copy(i,j) << ",";
+        }
+        output << "/n";
+    }
+    output.close();*/
 
-   /*// 11. Solve the linear system A X = B.
+   // 11. Solve the linear system A X = B.
    if (!pa)
    {
 #ifndef MFEM_USE_SUITESPARSE
@@ -271,220 +220,44 @@ int main(int argc, char *argv[])
    }
    else // Jacobi preconditioning in partial assembly mode
    {
-       CG(*A, B, X, 1, 400, 1e-12, 0.0);
-   }*/
-    
-    
-    // 11. Solve the linear system A X = B.
-     if (!pa)
-     {
-     #ifndef MFEM_USE_SUITESPARSE
-     // Use GMRES with a Gauss-Seidel preconditioner
-     GSSmoother M((SparseMatrix&)(*A));  // Gauss-Seidel preconditioner
-     GMRESSolver gmres;                  // Create GMRES solver
-     gmres.SetKDim(200);                 // Set the Krylov subspace dimension (restart size)
-     gmres.SetMaxIter(200);              // Set maximum iterations
-     gmres.SetRelTol(1e-12);             // Set relative tolerance
-     gmres.SetPrintLevel(1);             // Print convergence information
-     gmres.SetPreconditioner(M);         // Set the preconditioner
-     gmres.SetOperator(*A);              // Set the operator
-     gmres.Mult(B, X);                   // Solve the system
-     #else
-     // If MFEM was compiled with SuiteSparse, use UMFPACK to solve the system.
-     UMFPackSolver umf_solver;
-     umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
-     umf_solver.SetOperator(*A);
-     umf_solver.Mult(B, X);
-     #endif
-     }
-     else // Jacobi preconditioning in partial assembly mode
-     {
-     GMRESSolver gmres;                  // Create GMRES solver
-     gmres.SetKDim(400);                 // Set the Krylov subspace dimension (restart size)
-     gmres.SetMaxIter(400);              // Set maximum iterations
-     gmres.SetRelTol(1e-12);             // Set relative tolerance
-     gmres.SetPrintLevel(1);             // Print convergence information
-     gmres.SetOperator(*A);              // Set the operator
-     gmres.Mult(B, X);                   // Solve the system
-     }
+      if (UsesTensorBasis(fespace))
+      {
+         OperatorJacobiSmoother M(a, ess_tdof_list);
+         PCG(*A, M, B, X, 1, 400, 1e-12, 0.0);
+      }
+      else
+      {
+         CG(*A, B, X, 1, 400, 1e-12, 0.0);
+      }
+   }
 
    // 12. Recover the solution as a finite element grid function.
-   a->RecoverFEMSolution(X, *b, x);
-    
-   // 13. Compute and print the L^2 norm of the error.
-   cout << "\n|| E_h - E ||_{L^2} = " << x.ComputeL2Error(E, irs) << '\n' << endl;
+   a.RecoverFEMSolution(X, b, x);
 
-
-   // 14. Save the refined mesh and the solution. This output can be viewed later
+   // 13. Save the refined mesh and the solution. This output can be viewed later
    //     using GLVis: "glvis -m refined.mesh -g sol.gf".
    ofstream mesh_ofs("refined.mesh");
    mesh_ofs.precision(8);
-   mesh->Print(mesh_ofs);
+   mesh.Print(mesh_ofs);
    ofstream sol_ofs("sol.gf");
    sol_ofs.precision(8);
    x.Save(sol_ofs);
 
-   // 15. Send the solution by socket to a GLVis server.
+   // 14. Send the solution by socket to a GLVis server.
    if (visualization)
    {
       char vishost[] = "localhost";
       int  visport   = 19916;
       socketstream sol_sock(vishost, visport);
       sol_sock.precision(8);
-      sol_sock << "solution\n" << *mesh << x << flush;
+      sol_sock << "solution\n" << mesh << x << flush;
    }
-    
-   // 16. Free the used memory.
-   if(delete_fec)
+
+   // 15. Free the used memory.
+   if (delete_fec)
    {
-       delete a;
-       delete b;
-       delete fespace;
-       delete fec;
-       delete mesh;
+      delete fec;
    }
 
    return 0;
 }
-
-void U_function(const Vector &x, Vector &U)
-{
-    //std::cout << "dimension 2.0: " << dim << std::endl;
-    if (dim == 4)
-    {
-        // Define constants
-        //std::cout << "in" << std::endl;
-        double alpha = 1;
-        double beta = 50;
-        // Define exp function argument
-        double phi = -1.0*(beta * (x(0)-0.5)*(x(0)-0.5)) - (beta * (x(1)-0.5)*(x(1)-0.5)) - (beta * (x(2)-0.5)*(x(2)-0.5)) - (beta * (x(3)-0.5)*(x(3)-0.5));
-        
-        // Define vector
-        U(0) = 1 + alpha * exp(phi);
-        U(1) = 1 + alpha * exp(phi);
-        U(2) = 1 + alpha * exp(phi);
-        U(3) = 1.0;
-
-    }
-    if (dim == 3)
-    {
-       // Define constants
-       //std::cout << "in" << std::endl;
-
-       double alpha = 1;
-       double beta = 50;
-       // Define exp function argument
-       double phi = -1.0*(beta * (x(0)-0.5)*(x(0)-0.5)) - (beta * (x(1)-0.5)*(x(1)-0.5))  - (beta * (x(2)-0.5)*(x(2)-0.5));
-        
-       // Define vector
-       U(0) = 1 + alpha * exp(phi);
-       U(1) = 1 + alpha * exp(phi);
-       U(2) = 1.0;
-    }
-//    else
-//    {
-//        mfem_error("Function not supported for dim specified1");
-//    }
-    
-}
-
-double E_exact(const Vector &x)
-{
-    
-    double E_out;
-    double pi = 3.14159265359;
-    
-    if (dim == 3)
-    {
-        
-        E_out = sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2));
-
-    }
-    
-    if (dim == 4) 
-    {
-        
-        E_out = sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2)) * sin(kappa*pi*x(3));
-
-    }
-    return E_out;
-}
-
-double f_exact(const Vector &x)
-{
-    double f_out;
-
-    if (dim == 2)
-    {
-        mfem_error("Function not supported for dim specified2");
-
-    }
-    
-    if (dim == 3)
-    {
-        // Define constants
-        double pi = 3.14159265359;
-        double alpha = 1;
-        double beta = 50;
-        // Define exp function argument
-        double phi = -1.0*(beta * (x(0)-0.5)*(x(0)-0.5)) - (beta * (x(1)-0.5)*(x(1)-0.5))  - (beta * (x(2)-0.5)*(x(2)-0.5));
-        // Define C = C_x = C_y
-        double C = 1 + alpha * exp(phi);
-        
-        // Define dC/dx
-        double dC_dx = (-1.0 * beta * alpha) * exp(phi) * (2.0 * x(0) + 1);
-        // Define dC_dy
-        double dC_dy = (-1.0 * beta * alpha) * exp(phi) * (2.0 * x(1) + 1);
-        
-        // Define function u
-        double u = sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2));
-        // Define du_dx
-        double du_dx = (kappa*pi) * cos(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2));
-        // Define du_dy
-        double du_dy = (kappa*pi) * sin(kappa*pi*x(0)) * cos(kappa*pi*x(1)) * sin(kappa*pi*x(2));
-        // Define du_dz
-        double du_dz = (kappa*pi) * sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * cos(kappa*pi*x(2));
-        
-        f_out = (C * du_dx) + (C * du_dy) + du_dz;
-
-    }
-    
-    if (dim == 4)
-    {
-        // Define Constants
-        double pi = 3.14159265359;
-        double alpha = 1.0;
-        double beta = 50.0;
-        
-        // Define exp function argument
-        double phi = -1.0*(beta * (x(0)-0.5)*(x(0)-0.5)) - (beta * (x(1)-0.5)*(x(1)-0.5)) - (beta * (x(2)-0.5)*(x(2)-0.5)) - (beta * (x(3)-0.5)*(x(3)-0.5));
-        // Define C = C_x = C_y = C_z
-        double C = 1 + alpha * exp(phi);
-        
-        // Define dC/dx
-        double dC_dx = (-1.0 * beta * alpha) * exp(phi) * (2.0 * x(0) + 1);
-        // Define dC_dy
-        double dC_dy = (-1.0 * beta * alpha) * exp(phi) * (2.0 * x(1) + 1);
-        // Define dC_dz
-        double dC_dz = (-1.0 * beta * alpha) * exp(phi) * (2.0 * x(2) + 1);
-        
-        // Define function u
-        double u = sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2)) * sin(kappa*pi*x(3));
-        // Define du_dx
-        double du_dx = (kappa*pi) * cos(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2)) * sin(kappa*pi*x(3));
-        // Define du_dy
-        double du_dy = (kappa*pi) * sin(kappa*pi*x(0)) * cos(kappa*pi*x(1)) * sin(kappa*pi*x(2)) * sin(kappa*pi*x(3));
-        // Define du_dz
-        double du_dz = (kappa*pi) * sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * cos(kappa*pi*x(2)) * sin(kappa*pi*x(3));
-        // Define du_dt
-        double du_dt = (kappa*pi) * sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * sin(kappa*pi*x(2)) * cos(kappa*pi*x(3));
-
-
-        //f_out = ((u * dC_dx) + (C * du_dx)) + ((u * dC_dy) + (C * du_dy)) + ((u * dC_dz) + (C * du_dz)) + du_dt;
-        f_out = (C * du_dx) + (C * du_dy) + (C * du_dz) + du_dt;
-
-    }
-    
-    return f_out;
-}
-

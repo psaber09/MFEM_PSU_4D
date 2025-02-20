@@ -11,8 +11,11 @@
 
 list(APPEND ALL_EXE_SRCS
   ex1.cpp
+  Advection_exp.cpp
+  ex1_H1.cpp
   ex2.cpp
   ex3.cpp
+  ex3_Hdiv.cpp
   ex4.cpp
   ex5.cpp
   ex6.cpp
