@@ -19,6 +19,7 @@
 #include "geom.hpp"
 
 #include <map>
+#include <vector>
 
 namespace mfem
 {
