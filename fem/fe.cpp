@@ -14168,12 +14168,20 @@ void H1_PentatopeElement_Barycentric::CalcHessian(const IntegrationPoint &ip,
     mfem_error("H1_PentatopeElement_Barycentric::CalcHessian not implemented");
 }
 
-HSkwGrad_PentatopeElement_Barycentric::HSkwGrad_PentatopeElement_Barycentric(const int p, const int type)
-   : NodalFiniteElement(4, Geometry::PENTATOPE,
-                        ((p + 1)*(p + 2)*(p + 3)*(p + 4))/24,
-                        p, FunctionSpace::Pk)
+
+const double HSkwGrad_PentatopeElement::nk[20] =
+{ 0,0,0,-1,  0,0,-1,0,  0,-1,0,0,  -1,0,0,0,  1,1,1,1};
+// { .5,.5,.5, -.5,0,0, 0,-.5,0, 0,0,-.5}; // n_F |F|
+
+const double HSkwGrad_PentatopeElement::c = 1./5.;
+
+HSkwGrad_PentatopeElement::HSkwGrad_PentatopeElement(const int p)
+   : VectorFiniteElement(4, Geometry::PENTATOPE, (p + 1)*(p + 2)*(p + 3)*(p + 5)/6,
+                         p + 1, H_DIV, FunctionSpace::Pk),
+     dof2nk(dof)
 {
-   const double *cp = poly1d.ClosedPoints(p, VerifyClosed(type));
+   const double *iop = (p > 0) ? poly1d.OpenPoints(p - 1) : NULL;
+   const double *bop = poly1d.OpenPoints(p);
 
 #ifndef MFEM_THREAD_SAFE
    shape_x.SetSize(p + 1);
@@ -14186,1722 +14194,1637 @@ HSkwGrad_PentatopeElement_Barycentric::HSkwGrad_PentatopeElement_Barycentric(con
    dshape_z.SetSize(p + 1);
    dshape_t.SetSize(p + 1);
    dshape_l.SetSize(p + 1);
-   ddshape_x.SetSize(p + 1);
-   ddshape_y.SetSize(p + 1);
-   ddshape_z.SetSize(p + 1);
-   ddshape_t.SetSize(p + 1);
-   ddshape_l.SetSize(p + 1);
-   u.SetSize(dof);
-   du.SetSize(dof, dim);
-   ddu.SetSize(dof,dim*(dim+1)/2 );
+   u.SetSize(dof, dim);
+   divu.SetSize(dof);
 #else
-   Vector shape_x(p + 1), shape_y(p + 1), shape_z(p + 1), shape_t(p+1),
+   Vector shape_x(p + 1), shape_y(p + 1), shape_z(p + 1), shape_t(p + 1),
           shape_l(p + 1);
 #endif
-
-   // edges (see Tetrahedron::edges in mesh/tetrahedron.cpp)
-   int o = 5;
-   for (int i = 1; i < p; i++)  // (0,1)
-   {
-      Nodes.IntPoint(o++).Set4(cp[i], cp[0], cp[0], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (0,2)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[i], cp[0], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (0,3)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[0], cp[i], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (0,4)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[0], cp[0], cp[i]);
-   }
-   for (int i = 1; i < p; i++)  // (1,2)
-   {
-      Nodes.IntPoint(o++).Set4(cp[p-i], cp[i], cp[0], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (1,3)
-   {
-      Nodes.IntPoint(o++).Set4(cp[p-i], cp[0], cp[i], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (1,4)
-   {
-      Nodes.IntPoint(o++).Set4(cp[p-i], cp[0], cp[0], cp[i]);
-   }
-   for (int i = 1; i < p; i++)  // (2,3)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[p-i], cp[i], cp[0]);
-   }
-   for (int i = 1; i < p; i++)  // (2,4)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[p-i], cp[0], cp[i]);
-   }
-   for (int i = 1; i < p; i++)  // (3,4)
-   {
-      Nodes.IntPoint(o++).Set4(cp[0], cp[0], cp[p-i], cp[i]);
-   }
-
-   // faces
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,1,2)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[i]/w, cp[j]/w, cp[0], cp[0]);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,1,3)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[i]/w, cp[0], cp[j]/w, cp[0]);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,1,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[i]/w, cp[0], cp[0], cp[j]/w);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,2,3)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[0], cp[i]/w, cp[j]/w, cp[0]);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,2,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[0], cp[i]/w, cp[0], cp[j]/w);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (0,3,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[0], cp[0], cp[i]/w, cp[j]/w);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (1,2,3)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[p-i-j]/w, cp[i]/w, cp[j]/w, cp[0]);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (1,2,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[p-i-j]/w, cp[i]/w, cp[0], cp[j]/w);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (1,3,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[p-i-j]/w, cp[0], cp[i]/w, cp[j]/w);
-      }
-   for (int j = 1; j < p; j++)
-      for (int i=1; i + j < p; i++) // (2,3,4)
-      {
-         double w = cp[i] + cp[j] + cp[p-i-j];
-         Nodes.IntPoint(o++).Set4(cp[0], cp[p-i-j]/w, cp[i]/w, cp[j]/w);
-      }
-
-   // facets
-   for (int k = 1; k < p; k++)
-      for (int j = 1; j + k < p; j++)
-         for (int i = 1; i + j + k < p; i++)  // (0,1,2,3)
+   //std::cout << "p_V = " << p << std::endl;
+   int o = 0;
+   // faces (see Mesh::GenerateFaces in mesh/mesh.cpp,
+   //        the constructor of H1_PentatopeElement)
+   for (int k = 0; k <= p; k++)
+      for (int j = 0; j + k <= p; j++)
+         for (int i = 0; i + j + k <= p; i++)  // (0,1,2,3)
          {
-            double w = cp[i] + cp[j] + cp[k] + cp[p-i-j-k];
-            Nodes.IntPoint(o++).Set4(cp[i]/w, cp[j]/w, cp[k]/w, cp[0]);
+            double w = bop[i] + bop[j] + bop[k] + bop[p-i-j-k];
+            Nodes.IntPoint(o).Set4(bop[i]/w, bop[j]/w, bop[k]/w, 0.);
+            dof2nk[o++] = 0;
          }
-   for (int k = 1; k < p; k++)
-      for (int j = 1; j + k < p; j++)
-         for (int i = 1; i + j + k < p; i++)  // (0,2,1,4)
+   for (int k = 0; k <= p; k++)
+      for (int j = 0; j + k <= p; j++)
+         for (int i = 0; i + j + k <= p; i++)  // (0,2,1,4)
          {
-            double w = cp[i] + cp[j] + cp[k] + cp[p-i-j-k];
-            Nodes.IntPoint(o++).Set4(cp[j]/w, cp[i]/w, cp[0], cp[k]/w);
+            double w = bop[i] + bop[j] + bop[k] + bop[p-i-j-k];
+            Nodes.IntPoint(o).Set4(bop[j]/w, bop[i]/w, 0., bop[k]/w);
+            dof2nk[o++] = 1;
          }
-   for (int k = 1; k < p; k++)
-      for (int j = 1; j + k < p; j++)
-         for (int i = 1; i + j + k < p; i++)  // (0,1,3,4)
+   for (int k = 0; k <= p; k++)
+      for (int j = 0; j + k <= p; j++)
+         for (int i = 0; i + j + k <= p; i++)  // (0,1,3,4)
          {
-            double w = cp[i] + cp[j] + cp[k] + cp[p-i-j-k];
-            Nodes.IntPoint(o++).Set4(cp[i]/w, cp[0], cp[j]/w, cp[k]/w);
+            double w = bop[i] + bop[j] + bop[k] + bop[p-i-j-k];
+            Nodes.IntPoint(o).Set4(bop[i]/w, 0., bop[j]/w, bop[k]/w);
+            dof2nk[o++] = 2;
          }
-   for (int k = 1; k < p; k++)
-      for (int j = 1; j + k < p; j++)
-         for (int i = 1; i + j + k < p; i++)  // (0,3,2,4)
+   for (int k = 0; k <= p; k++)
+      for (int j = 0; j + k <= p; j++)
+         for (int i = 0; i + j + k <= p; i++)  // (0,3,2,4)
          {
-            double w = cp[i] + cp[j] + cp[k] + cp[p-i-j-k];
-            Nodes.IntPoint(o++).Set4(cp[0], cp[j]/w, cp[i]/w, cp[k]/w);
+            double w = bop[i] + bop[j] + bop[k] + bop[p-i-j-k];
+            Nodes.IntPoint(o).Set4(0., bop[j]/w, bop[i]/w, bop[k]/w);
+            dof2nk[o++] = 3;
          }
-   for (int k = 1; k < p; k++)
-      for (int j = 1; j + k < p; j++)
-         for (int i = 1; i + j + k < p; i++)  // (1,2,3,4)
+   for (int k = 0; k <= p; k++)
+      for (int j = 0; j + k <= p; j++)
+         for (int i = 0; i + j + k <= p; i++)  // (1,2,3,4)
          {
-            double w = cp[i] + cp[j] + cp[k] + cp[p-i-j-k];
-            Nodes.IntPoint(o++).Set4(cp[p-i-j-k]/w, cp[i]/w, cp[j]/w, cp[k]/w);
+            double w = bop[i] + bop[j] + bop[k] + bop[p-i-j-k];
+            Nodes.IntPoint(o).Set4(bop[p-i-j-k]/w, bop[i]/w, bop[j]/w, bop[k]/w);
+            dof2nk[o++] = 4;
          }
 
-   // interior bubbles
-   for (int l = 1; l < p; l++)
-      for (int k = 1; k + l < p; k++)
-         for (int j = 1; j + k + l < p; j++)
-            for (int i = 1; i + j + k + l < p; i++)
+   // interior
+   for (int l = 0; l < p; l++)
+      for (int k = 0; k + l < p; k++)
+         for (int j = 0; j + k + l < p; j++)
+            for (int i = 0; i + j + k + l < p; i++)
             {
-               double w = cp[i] + cp[j] + cp[k] + cp[l] + cp[p-i-j-k-l];
-               Nodes.IntPoint(o++).Set4(cp[i]/w, cp[j]/w, cp[k]/w, cp[l]/w);
+                double w = iop[i] + iop[j] + iop[k] + iop[l] + iop[p-1-i-j-k-l];
+                Nodes.IntPoint(o).Set4(iop[i]/w, iop[j]/w, iop[k]/w, iop[l]/w);
+                // old def dof2nk[o++] = 1;
+                dof2nk[o++] = 3;
+                Nodes.IntPoint(o).Set4(iop[i]/w, iop[j]/w, iop[k]/w, iop[l]/w);
+                // old def dof2nk[o++] = 2;
+                dof2nk[o++] = 2;
+                Nodes.IntPoint(o).Set4(iop[i]/w, iop[j]/w, iop[k]/w, iop[l]/w);
+                // old def dof2nk[o++] = 3;
+                dof2nk[o++] = 1;
+                Nodes.IntPoint(o).Set4(iop[i]/w, iop[j]/w, iop[k]/w, iop[l]/w);
+                // old def dof2nk[o++] = 4;
+                dof2nk[o++] = 0;
             }
 
    DenseMatrix T(dof);
-    // Add code to assembly matrix
+   DenseMatrix B(dof, dim);
+   
 
-   Ti.Factor(T);
+   mfem::out << "RT_PentatopeElement(" << p << ") : "; Ti.TestInversion();
 }
 
-   void HSkwGrad_PentatopeElement_Barycentric::CalcShape(const IntegrationPoint &ip,
-                                                   Vector &shape) const
-   {
-   const int p = order;
+void HSkwGrad_PentatopeElement::CalcVShape(const IntegrationPoint &ip,
+                                     DenseMatrix &shape) const
+{
+   const int p = order - 1;
+   //std::cout << "p_CalcShape = " << p << std::endl;
+    int reset_o;
 
-   #ifdef MFEM_THREAD_SAFE
-      Vector shape_x(p + 1), shape_y(p + 1), shape_z(p + 1), shape_t(p+1),
-             shape_l(p + 1);
-      Vector u(Dof);
-   #endif
-       
-       //compute barycentric coordinates as function of ip
+#ifdef MFEM_THREAD_SAFE
+   Vector shape_x(p + 1), shape_y(p + 1), shape_z(p + 1), shape_t(p + 1),
+          shape_l(p + 1);
+   DenseMatrix u(Dof, Dim);
+#endif
+    
+    /*//compute barycentric coordinates as function of ip
 
-       std::vector<double> bary_vector{(1.0 -ip.x-ip.y-ip.z-ip.t), ip.x, ip.y, ip.z, ip.t};
-       // compute the gradient of the barycentric coords
-       std::vector<double> gradL1{-1,-1,-1,-1};
-       std::vector<double> gradL2{1,0,0,0};
-       std::vector<double> gradL3{0,1,0,0};
-       std::vector<double> gradL4{0,0,1,0};
-       std::vector<double> gradL5{0,0,0,1};
-       std::vector<std::vector<double>> gradbary_vector{gradL1, gradL2, gradL3, gradL4, gradL5};
-           
-       int o = 0;
-       
-       double La, Lb, Lc, Ld, Le;
+    std::vector<double> bary_vector{(1.0 -ip.x-ip.y-ip.z-ip.t), ip.x, ip.y, ip.z, ip.t};
+    // compute the gradient of the barycentric coords
+    std::vector<double> gradL1{-1,-1,-1,-1};
+    std::vector<double> gradL2{1,0,0,0};
+    std::vector<double> gradL3{0,1,0,0};
+    std::vector<double> gradL4{0,0,1,0};
+    std::vector<double> gradL5{0,0,0,1};
+    std::vector<std::vector<double>> gradbary_vector{gradL1, gradL2, gradL3, gradL4, gradL5};
+        
+    int o = 0;
+    
+    double La, Lb, Lc, Ld, Le;
 
-      //Edges
-       for(int i=0; i<=p-1; i++)
-       {
-           for(int a=0; a<5; a++)
-           {
-               for(int b=0; b<5; b++)
-               {
-                   if(a<b)
-                   {
-                       // set Lamda
-                       La = bary_vector[a];
-                       Lb = bary_vector[b];
-                       // set grad Lamda
-                       std::vector<double> grad_La = gradbary_vector[a];
-                       std::vector<double> grad_Lb = gradbary_vector[b];
-                       
-                       // compute edge function
-                       double x = Lb;
-                       double y = (La+Lb);
-                       std::vector<double> Legendre_i;
-                       poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                       
-                       for(int index=0; index<4; index++)
-                       {
-                           double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                           u(o++) = Legendre_i[Legendre_i.size()-1]  * scalar_val;
-                       }
-                       
+   //Edges
+    for(int i=0; i<=p-1; i++)
+    {
+        for(int a=0; a<5; a++)
+        {
+            for(int b=0; b<5; b++)
+            {
+                if(a<b)
+                {
+                    // set Lamda
+                    La = bary_vector[a];
+                    Lb = bary_vector[b];
+                    // set grad Lamda
+                    std::vector<double> grad_La = gradbary_vector[a];
+                    std::vector<double> grad_Lb = gradbary_vector[b];
+                    
+                    // compute edge function
+                    double x = Lb;
+                    double y = (La+Lb);
+                    std::vector<double> Legendre_i;
+                    poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                    
+                    for(int index=0; index<4; index++)
+                    {
+                        double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                        u(o++) = Legendre_i[Legendre_i.size()-1]  * scalar_val;
                     }
-                  }
+                    
+                 }
                }
-           } // end of edges
-       
-      //Faces
-      for(int i=0; i<=p-1;i++)
-      {
-          for(int j=1; j<=p-1;j++)
-          {
-              for(int a=0; a<5;a++)
-              {
-                  for(int b=0; b<5;b++)
-                  {
-                      for(int c=0; c<5;c++)
-                      {
-                          if((a<b)&&(b<c)&&((i+j)<=p-1))
-                          {
-                              
-                              // Compute Family I:    <a,b,c>
-                              
-                              // set Lamda
-                              La = bary_vector[a];
-                              Lb = bary_vector[b];
-                              Lc = bary_vector[c];
-                              
-                              // set grad Lamda
-                              std::vector<double> grad_La = gradbary_vector[a];
-                              std::vector<double> grad_Lb = gradbary_vector[b];
-                              std::vector<double> grad_Lc = gradbary_vector[c];
-
-                              // Compute Polynomials
-                              double x = Lb;
-                              double y = La + Lb;
-                              std::vector<double> Legendre_i;
-                              poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                              
-                              double alpha = (2*i+1);
-                              std::vector<double> Int_Jacobi_j;
-                              x = Lc;
-                              y = La + Lb + Lc;
-                              poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                              
-                              for(int index=0; index<4; index++)
-                              {
-                                  double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                  u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1]  * scalar_val;
-                              }
-                              
-                              // Compute Family II:    <b,c,a>
-                              
-                              // set Lamda
-                              La = bary_vector[b];
-                              Lb = bary_vector[c];
-                              Lc = bary_vector[a];
-                              
-                              // set grad Lamda
-                              grad_La = gradbary_vector[b];
-                              grad_Lb = gradbary_vector[c];
-                              grad_Lc = gradbary_vector[a];
-                              
-                              // Compute Polynomials
-                              x = Lb;
-                              y = La + Lb;
-                              Legendre_i.clear();
-                              poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                              
-                              alpha = (2*i+1);
-                              Int_Jacobi_j.clear();
-                              x = Lc;
-                              y = La + Lb + Lc;
-                              poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                              
-                              for(int index=0; index<4; index++)
-                              {
-                                  double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                  u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * scalar_val;
-                              }
-                              
-                          }
-                      }
-                  }
-              }
-          }
-      } // end of faces
-              
-       //Facets
-       for(int i=0; i<=p-1;i++)
+            }
+        } // end of edges
+    
+   //Faces
+   for(int i=0; i<=p-1;i++)
+   {
+       for(int j=1; j<=p-1;j++)
        {
-           for(int j=1; j<=p-1;j++)
+           for(int a=0; a<5;a++)
            {
-               for(int l=1; 1<=p-1;l++)
+               for(int b=0; b<5;b++)
                {
-                   for (int r=1; r<16; r++)
+                   for(int c=0; c<5;c++)
                    {
-                       if((i+j+l)<=p-1)
+                       if((a<b)&&(b<c)&&((i+j)<=p-1))
                        {
-                           if (r==1)
-                           {
-                               // case 1: (a,b,c,d) = (0,1,2,3)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[0];
-                               Lb = bary_vector[1];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[0];
-                               std::vector<double> grad_Lb = gradbary_vector[1];
-                               std::vector<double> grad_Lc = gradbary_vector[2];
+                           
+                           // Compute Family I:    <a,b,c>
+                           
+                           // set Lamda
+                           La = bary_vector[a];
+                           Lb = bary_vector[b];
+                           Lc = bary_vector[c];
+                           
+                           // set grad Lamda
+                           std::vector<double> grad_La = gradbary_vector[a];
+                           std::vector<double> grad_Lb = gradbary_vector[b];
+                           std::vector<double> grad_Lc = gradbary_vector[c];
 
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[1];
-                               grad_Lb = gradbary_vector[2];
-                               grad_Lc = gradbary_vector[0];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==2)
+                           // Compute Polynomials
+                           double x = Lb;
+                           double y = La + Lb;
+                           std::vector<double> Legendre_i;
+                           poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                           
+                           double alpha = (2*i+1);
+                           std::vector<double> Int_Jacobi_j;
+                           x = Lc;
+                           y = La + Lb + Lc;
+                           poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                           
+                           for(int index=0; index<4; index++)
                            {
-                               // case 2: (a,b,c,d) = (1,2,3,0)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[1];
-                               std::vector<double> grad_Lb = gradbary_vector[2];
-                               std::vector<double> grad_Lc = gradbary_vector[3];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[2];
-                               grad_Lb = gradbary_vector[3];
-                               grad_Lc = gradbary_vector[1];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
+                               double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                               u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1]  * scalar_val;
                            }
-                           if (r==3)
+                           
+                           // Compute Family II:    <b,c,a>
+                           
+                           // set Lamda
+                           La = bary_vector[b];
+                           Lb = bary_vector[c];
+                           Lc = bary_vector[a];
+                           
+                           // set grad Lamda
+                           grad_La = gradbary_vector[b];
+                           grad_Lb = gradbary_vector[c];
+                           grad_Lc = gradbary_vector[a];
+                           
+                           // Compute Polynomials
+                           x = Lb;
+                           y = La + Lb;
+                           Legendre_i.clear();
+                           poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                           
+                           alpha = (2*i+1);
+                           Int_Jacobi_j.clear();
+                           x = Lc;
+                           y = La + Lb + Lc;
+                           poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                           
+                           for(int index=0; index<4; index++)
                            {
-                               // case 3: (a,b,c,d) = (2,3,0,1)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[2];
-                               std::vector<double> grad_Lb = gradbary_vector[3];
-                               std::vector<double> grad_Lc = gradbary_vector[0];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[0];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[3];
-                               grad_Lb = gradbary_vector[0];
-                               grad_Lc = gradbary_vector[2];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
+                               double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                               u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * scalar_val;
                            }
-                           if (r==4)
-                           {
-                               // case 4: (a,b,c,d) = (0,2,1,4)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[0];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[0];
-                               std::vector<double> grad_Lb = gradbary_vector[2];
-                               std::vector<double> grad_Lc = gradbary_vector[1];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[1];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[2];
-                               grad_Lb = gradbary_vector[1];
-                               grad_Lc = gradbary_vector[0];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==5)
-                           {
-                               // case 5: (a,b,c,d) = (2,1,4,0)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[1];
-                               Lc = bary_vector[4];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[2];
-                               std::vector<double> grad_Lb = gradbary_vector[1];
-                               std::vector<double> grad_Lc = gradbary_vector[4];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[1];
-                               grad_Lb = gradbary_vector[4];
-                               grad_Lc = gradbary_vector[2];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==6)
-                           {
-                               // case 6: (a,b,c,d) = (1,4,0,2)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[1];
-                               std::vector<double> grad_Lb = gradbary_vector[4];
-                               std::vector<double> grad_Lc = gradbary_vector[0];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[4];
-                               Lb = bary_vector[0];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[4];
-                               grad_Lb = gradbary_vector[0];
-                               grad_Lc = gradbary_vector[1];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==7)
-                           {
-                               // case 1: (a,b,c,d) = (0,1,3,4)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[0];
-                               Lb = bary_vector[1];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[0];
-                               std::vector<double> grad_Lb = gradbary_vector[1];
-                               std::vector<double> grad_Lc = gradbary_vector[3];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[1];
-                               grad_Lb = gradbary_vector[3];
-                               grad_Lc = gradbary_vector[0];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==8)
-                           {
-                               // case 8: (a,b,c,d) = (1,3,4,0)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[4];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[1];
-                               std::vector<double> grad_Lb = gradbary_vector[3];
-                               std::vector<double> grad_Lc = gradbary_vector[4];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[3];
-                               grad_Lb = gradbary_vector[4];
-                               grad_Lc = gradbary_vector[1];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==9)
-                           {
-                               // case 9: (a,b,c,d) = (3,4,0,1)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[3];
-                               std::vector<double> grad_Lb = gradbary_vector[4];
-                               std::vector<double> grad_Lc = gradbary_vector[0];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[4];
-                               Lb = bary_vector[0];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[4];
-                               grad_Lb = gradbary_vector[0];
-                               grad_Lc = gradbary_vector[3];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==10)
-                           {
-                               // case 10: (a,b,c,d) = (0,3,2,4)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[0];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[0];
-                               std::vector<double> grad_Lb = gradbary_vector[3];
-                               std::vector<double> grad_Lc = gradbary_vector[2];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[3];
-                               grad_Lb = gradbary_vector[2];
-                               grad_Lc = gradbary_vector[0];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==11)
-                           {
-                               // case 11: (a,b,c,d) = (3,2,4,0)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[4];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[3];
-                               std::vector<double> grad_Lb = gradbary_vector[2];
-                               std::vector<double> grad_Lc = gradbary_vector[4];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[2];
-                               grad_Lb = gradbary_vector[4];
-                               grad_Lc = gradbary_vector[3];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==12)
-                           {
-                               // case 12: (a,b,c,d) = (2,4,0,3)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[0];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[2];
-                               std::vector<double> grad_Lb = gradbary_vector[4];
-                               std::vector<double> grad_Lc = gradbary_vector[0];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[4];
-                               Lb = bary_vector[0];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[4];
-                               grad_Lb = gradbary_vector[0];
-                               grad_Lc = gradbary_vector[2];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==13)
-                           {
-                               // case 13: (a,b,c,d) = (1,2,3,4)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[1];
-                               Lb = bary_vector[2];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[1];
-                               std::vector<double> grad_Lb = gradbary_vector[2];
-                               std::vector<double> grad_Lc = gradbary_vector[3];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[2];
-                               grad_Lb = gradbary_vector[3];
-                               grad_Lc = gradbary_vector[1];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==14)
-                           {
-                               // case 1: (a,b,c,d) = (2,3,4,1)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[2];
-                               Lb = bary_vector[3];
-                               Lc = bary_vector[4];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[2];
-                               std::vector<double> grad_Lb = gradbary_vector[3];
-                               std::vector<double> grad_Lc = gradbary_vector[4];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[2];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[3];
-                               grad_Lb = gradbary_vector[4];
-                               grad_Lc = gradbary_vector[2];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
-                           if (r==15)
-                           {
-                               // case 15: (a,b,c,d) = (3,4,1,2)
-                               
-                               // Compute Family I:    <a,b,c>
-                               
-                               // set Lamda
-                               La = bary_vector[3];
-                               Lb = bary_vector[4];
-                               Lc = bary_vector[1];
-                               
-                               // set grad Lamda
-                               std::vector<double> grad_La = gradbary_vector[3];
-                               std::vector<double> grad_Lb = gradbary_vector[4];
-                               std::vector<double> grad_Lc = gradbary_vector[1];
-
-                               // Compute Polynomials
-                               double x = Lb;
-                               double y = La + Lb;
-                               std::vector<double> Legendre_i;
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               double alpha = (2*i+1);
-                               std::vector<double> Int_Jacobi_j;
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               std::vector<double> Int_Jacobi_l;
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
-                               }
-                               
-                               // Compute Family II:    <b,c,a>
-                               
-                               // set Lamda
-                               La = bary_vector[4];
-                               Lb = bary_vector[1];
-                               Lc = bary_vector[3];
-                               
-                               // set grad Lamda
-                               grad_La = gradbary_vector[4];
-                               grad_Lb = gradbary_vector[1];
-                               grad_Lc = gradbary_vector[3];
-                               
-                               // Compute Polynomials
-                               x = Lb;
-                               y = La + Lb;
-                               Legendre_i.clear();
-                               poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                               
-                               alpha = (2*i+1);
-                               Int_Jacobi_j.clear();
-                               x = Lc;
-                               y = La + Lb + Lc;
-                               poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                               
-                               alpha = 2*(i+j);
-                               Int_Jacobi_l.clear();
-                               x = Ld;
-                               y = La + Lb + Lc + Ld;
-                               poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                               
-                               for(int index=0; index<4; index++)
-                               {
-                                   double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                   u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
-                               }
-                           }
+                           
                        }
                    }
                }
            }
-       } //end of Facets
-              
-       //Interiors
-       for (int i=0; i<=p-1; i++) 
-       {
-           for (int j=1; j<=p-1; j++) 
-           {
-               for (int l=1; l<=p-1; l++)
-               {
-                   for (int m=1; m<=p-1; m++) 
-                   {
-                       if ((i+j+l+m)<=p-1)
-                       {
-                           for (int r=1; r<5; r++) 
-                           {
-                               if (r==1) 
-                               {
-                                   //case where (a,b,c,d,e) = (0,1,2,3,4)
-                                   
-                                   // define lamda
-                                   La = bary_vector[0];
-                                   Lb = bary_vector[1];
-                                   Lc = bary_vector[2];
-                                   Ld = bary_vector[3];
-                                   Le = bary_vector[4];
-                                   
-                                   // define grad(lamda)
-                                   std::vector<double> grad_La = gradbary_vector[0];
-                                   std::vector<double> grad_Lb = gradbary_vector[1];
-                                   
-                                   // Compute Polynomials
-                                   double x = Lb;
-                                   double y = La + Lb;
-                                   std::vector<double> Legendre_i;
-                                   poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                                   
-                                   double alpha = (2*i+1);
-                                   std::vector<double> Int_Jacobi_j;
-                                   x = Lc;
-                                   y = La + Lb + Lc;
-                                   poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                                   
-                                   alpha = 2*(i+j);
-                                   std::vector<double> Int_Jacobi_l;
-                                   x = Ld;
-                                   y = La + Lb + Lc + Ld;
-                                   poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                                   
-                                   
-                                   alpha = 2*(i+j+l);
-                                   std::vector<double> Int_Jacobi_m;
-                                   x = Le;
-                                   y = 1;
-                                   poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
-                                   
-                                   
-                                   for(int index=0; index<4; index++)
-                                   {
-                                       double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                       u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
-                                   }
-                                   
-                               }
-                               
-                               if (r==2)
-                               {
-                                   //case where (a,b,c,d,e) = (1,2,3,4,0)
-                                   
-                                   // define lamda
-                                   La = bary_vector[1];
-                                   Lb = bary_vector[2];
-                                   Lc = bary_vector[3];
-                                   Ld = bary_vector[4];
-                                   Le = bary_vector[0];
-                                   
-                                   // define grad(lamda)
-                                   std::vector<double> grad_La = gradbary_vector[1];
-                                   std::vector<double> grad_Lb = gradbary_vector[2];
-                                   
-                                   // Compute Polynomials
-                                   double x = Lb;
-                                   double y = La + Lb;
-                                   std::vector<double> Legendre_i;
-                                   poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                                   
-                                   double alpha = (2*i+1);
-                                   std::vector<double> Int_Jacobi_j;
-                                   x = Lc;
-                                   y = La + Lb + Lc;
-                                   poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                                   
-                                   alpha = 2*(i+j);
-                                   std::vector<double> Int_Jacobi_l;
-                                   x = Ld;
-                                   y = La + Lb + Lc + Ld;
-                                   poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                                   
-                                   
-                                   alpha = 2*(i+j+l);
-                                   std::vector<double> Int_Jacobi_m;
-                                   x = Le;
-                                   y = 1;
-                                   poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
-                                   
-                                   
-                                   for(int index=0; index<4; index++)
-                                   {
-                                       double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                       u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
-                                   }
-                               }
-                               
-                               if (r==3)
-                               {
-                                   //case where (a,b,c,d,e) = (2,3,4,0,1)
-                                   
-                                   // define lamda
-                                   La = bary_vector[2];
-                                   Lb = bary_vector[3];
-                                   Lc = bary_vector[4];
-                                   Ld = bary_vector[0];
-                                   Le = bary_vector[1];
-                                   
-                                   // define grad(lamda)
-                                   std::vector<double> grad_La = gradbary_vector[2];
-                                   std::vector<double> grad_Lb = gradbary_vector[3];
-                                   
-                                   // Compute Polynomials
-                                   double x = Lb;
-                                   double y = La + Lb;
-                                   std::vector<double> Legendre_i;
-                                   poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                                   
-                                   double alpha = (2*i+1);
-                                   std::vector<double> Int_Jacobi_j;
-                                   x = Lc;
-                                   y = La + Lb + Lc;
-                                   poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                                   
-                                   alpha = 2*(i+j);
-                                   std::vector<double> Int_Jacobi_l;
-                                   x = Ld;
-                                   y = La + Lb + Lc + Ld;
-                                   poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                                   
-                                   
-                                   alpha = 2*(i+j+l);
-                                   std::vector<double> Int_Jacobi_m;
-                                   x = Le;
-                                   y = 1;
-                                   poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
-                                   
-                                   
-                                   for(int index=0; index<4; index++)
-                                   {
-                                       double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                       u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
-                                   }
-                                   
-                                   
-                               }
-                               
-                               if (r==4)
-                               {
-                                   //case where (a,b,c,d,e) = (3,4,0,1,2)
-                                   
-                                   // define lamda
-                                   La = bary_vector[3];
-                                   Lb = bary_vector[4];
-                                   Lc = bary_vector[0];
-                                   Ld = bary_vector[1];
-                                   Le = bary_vector[2];
-                                   
-                                   // define grad(lamda)
-                                   std::vector<double> grad_La = gradbary_vector[3];
-                                   std::vector<double> grad_Lb = gradbary_vector[4];
-                                   
-                                   // Compute Polynomials
-                                   double x = Lb;
-                                   double y = La + Lb;
-                                   std::vector<double> Legendre_i;
-                                   poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
-                                   
-                                   double alpha = (2*i+1);
-                                   std::vector<double> Int_Jacobi_j;
-                                   x = Lc;
-                                   y = La + Lb + Lc;
-                                   poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
-                                   
-                                   alpha = 2*(i+j);
-                                   std::vector<double> Int_Jacobi_l;
-                                   x = Ld;
-                                   y = La + Lb + Lc + Ld;
-                                   poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
-                                   
-                                   
-                                   alpha = 2*(i+j+l);
-                                   std::vector<double> Int_Jacobi_m;
-                                   x = Le;
-                                   y = 1;
-                                   poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
-                                   
-                                   
-                                   for(int index=0; index<4; index++)
-                                   {
-                                       double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
-                                       u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
-                                   }
-                                   
-                               }
-                           }
-                       }
-                   }
-               }
-           }
-       } // end of interiors
-      
-       
-       
-      poly1d.CalcBasis(p, ip.x, shape_x);
-      poly1d.CalcBasis(p, ip.y, shape_y);
-      poly1d.CalcBasis(p, ip.z, shape_z);
-      poly1d.CalcBasis(p, ip.t, shape_t);
-      poly1d.CalcBasis(p, 1. - ip.x - ip.y - ip.z - ip.t, shape_l);
+       }
+   } // end of faces
+           
+    //Facets
+    for(int i=0; i<=p-1;i++)
+    {
+        for(int j=1; j<=p-1;j++)
+        {
+            for(int l=1; 1<=p-1;l++)
+            {
+                for (int r=1; r<16; r++)
+                {
+                    if((i+j+l)<=p-1)
+                    {
+                        if (r==1)
+                        {
+                            // case 1: (a,b,c,d) = (0,1,2,3)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[0];
+                            Lb = bary_vector[1];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[0];
+                            std::vector<double> grad_Lb = gradbary_vector[1];
+                            std::vector<double> grad_Lc = gradbary_vector[2];
 
-      for (int o = 0, l = 0; l <= p; l++)
-         for (int k = 0; k + l <= p; k++)
-            for (int j = 0; j + k + l <= p; j++)
-               for (int i = 0; i + j + k + l <= p; i++)
-               {
-                  u(o++) = shape_x(i)*shape_y(j)*shape_z(k)*shape_t(l)*shape_l(p-i-j-k-l);
-               }
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[1];
+                            grad_Lb = gradbary_vector[2];
+                            grad_Lc = gradbary_vector[0];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==2)
+                        {
+                            // case 2: (a,b,c,d) = (1,2,3,0)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[1];
+                            std::vector<double> grad_Lb = gradbary_vector[2];
+                            std::vector<double> grad_Lc = gradbary_vector[3];
 
-      Ti.Mult(u, shape);
-   }
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[2];
+                            grad_Lb = gradbary_vector[3];
+                            grad_Lc = gradbary_vector[1];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==3)
+                        {
+                            // case 3: (a,b,c,d) = (2,3,0,1)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[2];
+                            std::vector<double> grad_Lb = gradbary_vector[3];
+                            std::vector<double> grad_Lc = gradbary_vector[0];
 
-void HSkwGrad_PentatopeElement_Barycentric::CalcDShape(const IntegrationPoint &ip,
-                                     DenseMatrix &dshape) const
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[0];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[3];
+                            grad_Lb = gradbary_vector[0];
+                            grad_Lc = gradbary_vector[2];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==4)
+                        {
+                            // case 4: (a,b,c,d) = (0,2,1,4)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[0];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[0];
+                            std::vector<double> grad_Lb = gradbary_vector[2];
+                            std::vector<double> grad_Lc = gradbary_vector[1];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[1];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[2];
+                            grad_Lb = gradbary_vector[1];
+                            grad_Lc = gradbary_vector[0];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==5)
+                        {
+                            // case 5: (a,b,c,d) = (2,1,4,0)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[1];
+                            Lc = bary_vector[4];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[2];
+                            std::vector<double> grad_Lb = gradbary_vector[1];
+                            std::vector<double> grad_Lc = gradbary_vector[4];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[1];
+                            grad_Lb = gradbary_vector[4];
+                            grad_Lc = gradbary_vector[2];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==6)
+                        {
+                            // case 6: (a,b,c,d) = (1,4,0,2)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[1];
+                            std::vector<double> grad_Lb = gradbary_vector[4];
+                            std::vector<double> grad_Lc = gradbary_vector[0];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[4];
+                            Lb = bary_vector[0];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[4];
+                            grad_Lb = gradbary_vector[0];
+                            grad_Lc = gradbary_vector[1];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==7)
+                        {
+                            // case 1: (a,b,c,d) = (0,1,3,4)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[0];
+                            Lb = bary_vector[1];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[0];
+                            std::vector<double> grad_Lb = gradbary_vector[1];
+                            std::vector<double> grad_Lc = gradbary_vector[3];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[1];
+                            grad_Lb = gradbary_vector[3];
+                            grad_Lc = gradbary_vector[0];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==8)
+                        {
+                            // case 8: (a,b,c,d) = (1,3,4,0)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[4];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[1];
+                            std::vector<double> grad_Lb = gradbary_vector[3];
+                            std::vector<double> grad_Lc = gradbary_vector[4];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[3];
+                            grad_Lb = gradbary_vector[4];
+                            grad_Lc = gradbary_vector[1];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==9)
+                        {
+                            // case 9: (a,b,c,d) = (3,4,0,1)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[3];
+                            std::vector<double> grad_Lb = gradbary_vector[4];
+                            std::vector<double> grad_Lc = gradbary_vector[0];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[4];
+                            Lb = bary_vector[0];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[4];
+                            grad_Lb = gradbary_vector[0];
+                            grad_Lc = gradbary_vector[3];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==10)
+                        {
+                            // case 10: (a,b,c,d) = (0,3,2,4)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[0];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[0];
+                            std::vector<double> grad_Lb = gradbary_vector[3];
+                            std::vector<double> grad_Lc = gradbary_vector[2];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[3];
+                            grad_Lb = gradbary_vector[2];
+                            grad_Lc = gradbary_vector[0];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==11)
+                        {
+                            // case 11: (a,b,c,d) = (3,2,4,0)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[4];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[3];
+                            std::vector<double> grad_Lb = gradbary_vector[2];
+                            std::vector<double> grad_Lc = gradbary_vector[4];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[2];
+                            grad_Lb = gradbary_vector[4];
+                            grad_Lc = gradbary_vector[3];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==12)
+                        {
+                            // case 12: (a,b,c,d) = (2,4,0,3)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[0];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[2];
+                            std::vector<double> grad_Lb = gradbary_vector[4];
+                            std::vector<double> grad_Lc = gradbary_vector[0];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[4];
+                            Lb = bary_vector[0];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[4];
+                            grad_Lb = gradbary_vector[0];
+                            grad_Lc = gradbary_vector[2];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==13)
+                        {
+                            // case 13: (a,b,c,d) = (1,2,3,4)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[1];
+                            Lb = bary_vector[2];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[1];
+                            std::vector<double> grad_Lb = gradbary_vector[2];
+                            std::vector<double> grad_Lc = gradbary_vector[3];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[2];
+                            grad_Lb = gradbary_vector[3];
+                            grad_Lc = gradbary_vector[1];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==14)
+                        {
+                            // case 1: (a,b,c,d) = (2,3,4,1)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[2];
+                            Lb = bary_vector[3];
+                            Lc = bary_vector[4];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[2];
+                            std::vector<double> grad_Lb = gradbary_vector[3];
+                            std::vector<double> grad_Lc = gradbary_vector[4];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[2];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[3];
+                            grad_Lb = gradbary_vector[4];
+                            grad_Lc = gradbary_vector[2];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                        if (r==15)
+                        {
+                            // case 15: (a,b,c,d) = (3,4,1,2)
+                            
+                            // Compute Family I:    <a,b,c>
+                            
+                            // set Lamda
+                            La = bary_vector[3];
+                            Lb = bary_vector[4];
+                            Lc = bary_vector[1];
+                            
+                            // set grad Lamda
+                            std::vector<double> grad_La = gradbary_vector[3];
+                            std::vector<double> grad_Lb = gradbary_vector[4];
+                            std::vector<double> grad_Lc = gradbary_vector[1];
+
+                            // Compute Polynomials
+                            double x = Lb;
+                            double y = La + Lb;
+                            std::vector<double> Legendre_i;
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            double alpha = (2*i+1);
+                            std::vector<double> Int_Jacobi_j;
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            std::vector<double> Int_Jacobi_l;
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1]  * scalar_val;
+                            }
+                            
+                            // Compute Family II:    <b,c,a>
+                            
+                            // set Lamda
+                            La = bary_vector[4];
+                            Lb = bary_vector[1];
+                            Lc = bary_vector[3];
+                            
+                            // set grad Lamda
+                            grad_La = gradbary_vector[4];
+                            grad_Lb = gradbary_vector[1];
+                            grad_Lc = gradbary_vector[3];
+                            
+                            // Compute Polynomials
+                            x = Lb;
+                            y = La + Lb;
+                            Legendre_i.clear();
+                            poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                            
+                            alpha = (2*i+1);
+                            Int_Jacobi_j.clear();
+                            x = Lc;
+                            y = La + Lb + Lc;
+                            poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                            
+                            alpha = 2*(i+j);
+                            Int_Jacobi_l.clear();
+                            x = Ld;
+                            y = La + Lb + Lc + Ld;
+                            poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                            
+                            for(int index=0; index<4; index++)
+                            {
+                                double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * scalar_val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } //end of Facets
+           
+    //Interiors
+    for (int i=0; i<=p-1; i++)
+    {
+        for (int j=1; j<=p-1; j++)
+        {
+            for (int l=1; l<=p-1; l++)
+            {
+                for (int m=1; m<=p-1; m++)
+                {
+                    if ((i+j+l+m)<=p-1)
+                    {
+                        for (int r=1; r<5; r++)
+                        {
+                            if (r==1)
+                            {
+                                //case where (a,b,c,d,e) = (0,1,2,3,4)
+                                
+                                // define lamda
+                                La = bary_vector[0];
+                                Lb = bary_vector[1];
+                                Lc = bary_vector[2];
+                                Ld = bary_vector[3];
+                                Le = bary_vector[4];
+                                
+                                // define grad(lamda)
+                                std::vector<double> grad_La = gradbary_vector[0];
+                                std::vector<double> grad_Lb = gradbary_vector[1];
+                                
+                                // Compute Polynomials
+                                double x = Lb;
+                                double y = La + Lb;
+                                std::vector<double> Legendre_i;
+                                poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                                
+                                double alpha = (2*i+1);
+                                std::vector<double> Int_Jacobi_j;
+                                x = Lc;
+                                y = La + Lb + Lc;
+                                poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                                
+                                alpha = 2*(i+j);
+                                std::vector<double> Int_Jacobi_l;
+                                x = Ld;
+                                y = La + Lb + Lc + Ld;
+                                poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                                
+                                
+                                alpha = 2*(i+j+l);
+                                std::vector<double> Int_Jacobi_m;
+                                x = Le;
+                                y = 1;
+                                poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
+                                
+                                
+                                for(int index=0; index<4; index++)
+                                {
+                                    double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                    u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
+                                }
+                                
+                            }
+                            
+                            if (r==2)
+                            {
+                                //case where (a,b,c,d,e) = (1,2,3,4,0)
+                                
+                                // define lamda
+                                La = bary_vector[1];
+                                Lb = bary_vector[2];
+                                Lc = bary_vector[3];
+                                Ld = bary_vector[4];
+                                Le = bary_vector[0];
+                                
+                                // define grad(lamda)
+                                std::vector<double> grad_La = gradbary_vector[1];
+                                std::vector<double> grad_Lb = gradbary_vector[2];
+                                
+                                // Compute Polynomials
+                                double x = Lb;
+                                double y = La + Lb;
+                                std::vector<double> Legendre_i;
+                                poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                                
+                                double alpha = (2*i+1);
+                                std::vector<double> Int_Jacobi_j;
+                                x = Lc;
+                                y = La + Lb + Lc;
+                                poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                                
+                                alpha = 2*(i+j);
+                                std::vector<double> Int_Jacobi_l;
+                                x = Ld;
+                                y = La + Lb + Lc + Ld;
+                                poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                                
+                                
+                                alpha = 2*(i+j+l);
+                                std::vector<double> Int_Jacobi_m;
+                                x = Le;
+                                y = 1;
+                                poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
+                                
+                                
+                                for(int index=0; index<4; index++)
+                                {
+                                    double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                    u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
+                                }
+                            }
+                            
+                            if (r==3)
+                            {
+                                //case where (a,b,c,d,e) = (2,3,4,0,1)
+                                
+                                // define lamda
+                                La = bary_vector[2];
+                                Lb = bary_vector[3];
+                                Lc = bary_vector[4];
+                                Ld = bary_vector[0];
+                                Le = bary_vector[1];
+                                
+                                // define grad(lamda)
+                                std::vector<double> grad_La = gradbary_vector[2];
+                                std::vector<double> grad_Lb = gradbary_vector[3];
+                                
+                                // Compute Polynomials
+                                double x = Lb;
+                                double y = La + Lb;
+                                std::vector<double> Legendre_i;
+                                poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                                
+                                double alpha = (2*i+1);
+                                std::vector<double> Int_Jacobi_j;
+                                x = Lc;
+                                y = La + Lb + Lc;
+                                poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                                
+                                alpha = 2*(i+j);
+                                std::vector<double> Int_Jacobi_l;
+                                x = Ld;
+                                y = La + Lb + Lc + Ld;
+                                poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                                
+                                
+                                alpha = 2*(i+j+l);
+                                std::vector<double> Int_Jacobi_m;
+                                x = Le;
+                                y = 1;
+                                poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
+                                
+                                
+                                for(int index=0; index<4; index++)
+                                {
+                                    double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                    u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
+                                }
+                                
+                                
+                            }
+                            
+                            if (r==4)
+                            {
+                                //case where (a,b,c,d,e) = (3,4,0,1,2)
+                                
+                                // define lamda
+                                La = bary_vector[3];
+                                Lb = bary_vector[4];
+                                Lc = bary_vector[0];
+                                Ld = bary_vector[1];
+                                Le = bary_vector[2];
+                                
+                                // define grad(lamda)
+                                std::vector<double> grad_La = gradbary_vector[3];
+                                std::vector<double> grad_Lb = gradbary_vector[4];
+                                
+                                // Compute Polynomials
+                                double x = Lb;
+                                double y = La + Lb;
+                                std::vector<double> Legendre_i;
+                                poly1d.CalcLegendreShifted(i, x, y, Legendre_i);
+                                
+                                double alpha = (2*i+1);
+                                std::vector<double> Int_Jacobi_j;
+                                x = Lc;
+                                y = La + Lb + Lc;
+                                poly1d.CalcIntJacobi(j, x, y, alpha, Int_Jacobi_j);
+                                
+                                alpha = 2*(i+j);
+                                std::vector<double> Int_Jacobi_l;
+                                x = Ld;
+                                y = La + Lb + Lc + Ld;
+                                poly1d.CalcIntJacobi(l, x, y, alpha, Int_Jacobi_l);
+                                
+                                
+                                alpha = 2*(i+j+l);
+                                std::vector<double> Int_Jacobi_m;
+                                x = Le;
+                                y = 1;
+                                poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
+                                
+                                
+                                for(int index=0; index<4; index++)
+                                {
+                                    double scalar_val = La*grad_Lb[index] - Lb*grad_La[index];
+                                    u(o++) = Legendre_i[Legendre_i.size()-1] * Int_Jacobi_j[Int_Jacobi_j.size()-1] * Int_Jacobi_l[Int_Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1] * scalar_val;
+                                }
+                                
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } // end of interiors
+   
+    
+    
+   poly1d.CalcBasis(p, ip.x, shape_x);
+   poly1d.CalcBasis(p, ip.y, shape_y);
+   poly1d.CalcBasis(p, ip.z, shape_z);
+   poly1d.CalcBasis(p, ip.t, shape_t);
+   poly1d.CalcBasis(p, 1. - ip.x - ip.y - ip.z - ip.t, shape_l);
+
+   for (int o = 0, l = 0; l <= p; l++)
+      for (int k = 0; k + l <= p; k++)
+         for (int j = 0; j + k + l <= p; j++)
+            for (int i = 0; i + j + k + l <= p; i++)
+            {
+               u(o++) = shape_x(i)*shape_y(j)*shape_z(k)*shape_t(l)*shape_l(p-i-j-k-l);
+            }
+
+   Ti.Mult(u, shape);*/
+    
+}
+
+void HSkwGrad_PentatopeElement::CalcSkwGradShape(const IntegrationPoint &ip,
+                                       Vector &divshape) const
 {
-    //Do Nothing
-    mfem_error("HSkwGrad_PentatopeElement_Barycentric::CalcDShape not implemented");
+    mfem_error("SkwGrad_PentatopeElement SkwGradShape not implemented");
 
 }
 
-void HSkwGrad_PentatopeElement_Barycentric::CalcHessian(const IntegrationPoint &ip,
-                                      DenseMatrix &ddshape) const
+void HSkwGrad_PentatopeElement::ProjectDivSkew(const FiniteElement& fe,
+                                         ElementTransformation& Trans, DenseMatrix& DivSkew)
 {
-    //Do Nothing
-    mfem_error("H1_PentatopeElement_Barycentric::CalcHessian not implemented");
+    mfem_error("SkwGrad_PentatopeElement_Fuentes::ProjectDivSkew not implemented");
+
 }
+
+
+
+
+
 
 Hcurl_PentatopeElement_Barycentric::Hcurl_PentatopeElement_Barycentric(const int p, const int type)
    : NodalFiniteElement(4, Geometry::PENTATOPE,
@@ -17596,81 +17519,6 @@ Hdiv_PentatopeElement::Hdiv_PentatopeElement(const int p)
                }
            }
            
-//           // Hard Code
-//                      
-//                      //Compute relevant four curl
-//                     std::vector<double> curl_bcd = four_cross(b,c,d);
-//                     std::vector<double> curl_cda = four_cross(c,d,a);
-//                     std::vector<double> curl_dab = four_cross(d,a,b);
-//                     std::vector<double> curl_abc = four_cross(a,b,c);
-////           
-////                     // Compute Vector Components
-//                     double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
-//                     double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
-//                     double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
-//                     double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
-//           
-//           
-////                     // Compute Vector Components
-////                     double scalar_val_x = La*curl_bcd[0] + Lb*curl_cda[0] + Lc*curl_dab[0] + Ld*curl_abc[0];
-////                     double scalar_val_y = La*curl_bcd[1] + Lb*curl_cda[1] + Lc*curl_dab[1] + Ld*curl_abc[1];
-////                     double scalar_val_z = La*curl_bcd[2] + Lb*curl_cda[2] + Lc*curl_dab[2] + Ld*curl_abc[2];
-////                     double scalar_val_t = La*curl_bcd[3] + Lb*curl_cda[3] + Lc*curl_dab[3] + Ld*curl_abc[3];
-//           
-//                      // function 1 All indexs are 0
-//                      B(o ,0) =   scalar_val_x;
-//           
-//                      B(o ,1) =   scalar_val_y;
-//           
-//                      B(o ,2) =   scalar_val_z;
-//           
-//                      B(o ,3) =   scalar_val_t;
-//           
-//                      o++;
-//           
-//                      // function 2 i = 1 j = 0 l = 0
-//                      double x = Lb;
-//                      double y = La + Lb;
-//           
-//                      B(o ,0) =  (2.0*x-y) * scalar_val_x;
-//           
-//                      B(o ,1) =  (2.0*x-y) * scalar_val_y;
-//           
-//                      B(o ,2) =  (2.0*x-y) * scalar_val_z;
-//           
-//                      B(o ,3) =  (2.0*x-y) * scalar_val_t;
-//           
-//                      o++;
-//           
-//                      // function 3 i = 0 j = 1 l = 0
-//                      x = Lc;
-//                      y = La + Lb + Lc;
-//                      double alpha = 1.0;
-//           
-//                      B(o ,0) =  (2.0*x-y+alpha*x) * scalar_val_x;
-//           
-//                      B(o ,1) =  (2.0*x-y+alpha*x) * scalar_val_y;
-//           
-//                      B(o ,2) = (2.0*x-y+alpha*x) * scalar_val_z;
-//           
-//                      B(o,3) =  (2.0*x-y+alpha*x) * scalar_val_t;
-//           
-//                      o++;
-//           
-//                      // function 1 i = 0 j = 0 l = 1
-//                      x = Ld;
-//                      y = La + Lb + Lc + Ld;
-//                      alpha = 2.0;
-//           
-//                      B(o ,0) =  (2.0*x-y+alpha*x) * scalar_val_x;
-//           
-//                      B(o ,1) =  (2.0*x-y+alpha*x) * scalar_val_y;
-//           
-//                      B(o ,2) = (2.0*x-y+alpha*x) * scalar_val_z;
-//           
-//                      B(o, 3) =  (2.0*x-y+alpha*x) * scalar_val_t;
-//           
-//                      o++;
        }//end of Facets
        
               
@@ -17823,37 +17671,6 @@ Hdiv_PentatopeElement::Hdiv_PentatopeElement(const int p)
                }
            }
            
-//           // Hard Code
-//                      
-//                      //Compute relevant four curl
-//                      std::vector<double> curl_bcd = four_cross(b,c,d);
-//                      std::vector<double> curl_cda = four_cross(c,d,a);
-//                      std::vector<double> curl_dab = four_cross(d,a,b);
-//                      std::vector<double> curl_abc = four_cross(a,b,c);
-//           
-////                      // Compute Vector Components
-//                      double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
-//                      double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
-//                      double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
-//                      double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
-//           
-//           // Compute Vector Components
-////           double scalar_val_x = La*curl_bcd[0] + Lb*curl_cda[0] + Lc*curl_dab[0] + Ld*curl_abc[0];
-////           double scalar_val_y = La*curl_bcd[1] + Lb*curl_cda[1] + Lc*curl_dab[1] + Ld*curl_abc[1];
-////           double scalar_val_z = La*curl_bcd[2] + Lb*curl_cda[2] + Lc*curl_dab[2] + Ld*curl_abc[2];
-////           double scalar_val_t = La*curl_bcd[3] + Lb*curl_cda[3] + Lc*curl_dab[3] + Ld*curl_abc[3];
-////           
-//                      double x = Le;
-//           
-//                      B(o ,0) = x  * scalar_val_x;
-//           
-//                      B(o ,1) = x * scalar_val_y;
-//           
-//                      B(o ,2) = x * scalar_val_z;
-//           
-//                      B(o ,3) = x * scalar_val_t;
-//           
-//                      o++;
        }// End of Interiors
        
        
@@ -18084,81 +17901,7 @@ void Hdiv_PentatopeElement::CalcVShape(const IntegrationPoint &ip,
                 }
             }
         }
-        
-        // Hard Code
-                   
-//                   //Compute relevant four curl
-//                  std::vector<double> curl_bcd = four_cross(b,c,d);
-//                  std::vector<double> curl_cda = four_cross(c,d,a);
-//                  std::vector<double> curl_dab = four_cross(d,a,b);
-//                  std::vector<double> curl_abc = four_cross(a,b,c);
-//        
-////                  // Compute Vector Components
-//                  double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
-//                  double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
-//                  double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
-//                  double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
-//        
-//        // Compute Vector Components
-////        double scalar_val_x = La*curl_bcd[0] + Lb*curl_cda[0] + Lc*curl_dab[0] + Ld*curl_abc[0];
-////        double scalar_val_y = La*curl_bcd[1] + Lb*curl_cda[1] + Lc*curl_dab[1] + Ld*curl_abc[1];
-////        double scalar_val_z = La*curl_bcd[2] + Lb*curl_cda[2] + Lc*curl_dab[2] + Ld*curl_abc[2];
-////        double scalar_val_t = La*curl_bcd[3] + Lb*curl_cda[3] + Lc*curl_dab[3] + Ld*curl_abc[3];
-//        
-//                   // function 1 All indexs are 0
-//                   u(o ,0) =   scalar_val_x;
-//        
-//                   u(o ,1) =   scalar_val_y;
-//        
-//                   u(o ,2) =   scalar_val_z;
-//        
-//                   u(o ,3) =   scalar_val_t;
-//        
-//                   o++;
-//        
-//                   // function 2 i = 1 j = 0 l = 0
-//                   double x = Lb;
-//                   double y = La + Lb;
-//        
-//                   u(o ,0) =  (2.0*x-y) * scalar_val_x;
-//        
-//                   u(o ,1) =  (2.0*x-y) * scalar_val_y;
-//        
-//                   u(o ,2) =  (2.0*x-y) * scalar_val_z;
-//        
-//                   u(o ,3) =  (2.0*x-y) * scalar_val_t;
-//        
-//                   o++;
-//        
-//                   // function 3 i = 0 j = 1 l = 0
-//                   x = Lc;
-//                   y = La + Lb + Lc;
-//                   double alpha = 1.0;
-//        
-//                   u(o ,0) =  (2.0*x-y+alpha*x) * scalar_val_x;
-//        
-//                   u(o ,1) =  (2.0*x-y+alpha*x) * scalar_val_y;
-//        
-//                   u(o ,2) = (2.0*x-y+alpha*x) * scalar_val_z;
-//        
-//                   u(o,3) =  (2.0*x-y+alpha*x) * scalar_val_t;
-//        
-//                   o++;
-//        
-//                   // function 1 i = 0 j = 0 l = 1
-//                   x = Ld;
-//                   y = La + Lb + Lc + Ld;
-//                   alpha = 2.0;
-//        
-//                   u(o ,0) =  (2.0*x-y+alpha*x) * scalar_val_x;
-//        
-//                   u(o ,1) =  (2.0*x-y+alpha*x) * scalar_val_y;
-//        
-//                   u(o ,2) = (2.0*x-y+alpha*x) * scalar_val_z;
-//        
-//                   u(o, 3) =  (2.0*x-y+alpha*x) * scalar_val_t;
-//        
-//                   o++;
+                        
 
     }//end of Facets
 
@@ -18296,37 +18039,6 @@ void Hdiv_PentatopeElement::CalcVShape(const IntegrationPoint &ip,
             }
         }
         
-//        // Hard Code
-//                   
-//                   //Compute relevant four curl
-//                   std::vector<double> curl_bcd = four_cross(b,c,d);
-//                   std::vector<double> curl_cda = four_cross(c,d,a);
-//                   std::vector<double> curl_dab = four_cross(d,a,b);
-//                   std::vector<double> curl_abc = four_cross(a,b,c);
-//        
-////                   // Compute Vector Components
-//                   double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
-//                   double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
-//                   double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
-//                   double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
-//        
-//        // Compute Vector Components
-////        double scalar_val_x = La*curl_bcd[0] + Lb*curl_cda[0] + Lc*curl_dab[0] + Ld*curl_abc[0];
-////        double scalar_val_y = La*curl_bcd[1] + Lb*curl_cda[1] + Lc*curl_dab[1] + Ld*curl_abc[1];
-////        double scalar_val_z = La*curl_bcd[2] + Lb*curl_cda[2] + Lc*curl_dab[2] + Ld*curl_abc[2];
-////        double scalar_val_t = La*curl_bcd[3] + Lb*curl_cda[3] + Lc*curl_dab[3] + Ld*curl_abc[3];
-//        
-//                   double x = Le;
-//        
-//                   u(o ,0) = x  * scalar_val_x;
-//        
-//                   u(o ,1) = x * scalar_val_y;
-//        
-//                   u(o ,2) = x * scalar_val_z;
-//        
-//                   u(o ,3) = x * scalar_val_t;
-//        
-//                   o++;
     }// End of Interiors
     
 
@@ -18541,44 +18253,67 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                         std::vector<double> curl_dab = four_cross(d,a,b);
                         std::vector<double> curl_abc = four_cross(a,b,c);
                         
-                        // X component of Divergence
-                        double x_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[0] + grad_Lb[0]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
+                        // Basis Functions can be decomposed into vector and scalar parts
+                        
+                        // Scalar part
+                        double Scalar = Legendre_i[Legendre_i.size()-1] * Jacobi_j[Jacobi_j.size()-1] * Jacobi_l[Jacobi_l.size()-1];
+                        
+                        // d Scalar / dx
+                        double dscalar_x = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[0] + grad_Lb[0]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[0] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[0] + grad_Lb[0] + grad_Lc[0]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[0] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[0] + grad_Lb[0] + grad_Lc[0] + grad_Ld[0]));
                         
-                        double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
                         
-                        // Y component of Divergence
-                        double y_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[1] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[1] + grad_Lb[1]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
+                        // d Scalar / dy
+                        double dscalar_y = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[1] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[1] + grad_Lb[1]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[1] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[1] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1] + grad_Ld[1]));
                         
-                        double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
                         
-                        // Z component of Divergence
-                        double z_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[2] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[2] + grad_Lb[2]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
+                        // d Scalar / dz
+                        double dscalar_z = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[2] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[2] + grad_Lb[2]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[2] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[2] + grad_Lb[2] + grad_Lc[2]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[2] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[2] + grad_Lb[2] + grad_Lc[2] + grad_Ld[2]));
                         
-                        double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
                         
-                        // T component of Divergence
-                        double t_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[3] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
+                        // d Scalar / dt
+                        double dscalar_t = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[3] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[3] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[3] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3] + grad_Ld[3]));
                         
-                        double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
+                        
+                        // components of vectors part
+                        double vec_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
+                        
+                        double vec_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
+
+                        double vec_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
+
+                        double vec_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
+                        
+                        // Each term of div(vector)
+                        double div_val_x = grad_La[0]*curl_bcd[0] - grad_Lb[0]*curl_cda[0] + grad_Lc[0]*curl_dab[0] - grad_Ld[0]*curl_abc[0];
+                        
+                        double div_val_y = grad_La[1]*curl_bcd[1] - grad_Lb[1]*curl_cda[1] + grad_Lc[1]*curl_dab[1] - grad_Ld[1]*curl_abc[1];
+
+                        double div_val_z = grad_La[2]*curl_bcd[2] - grad_Lb[2]*curl_cda[2] + grad_Lc[2]*curl_dab[2] - grad_Ld[2]*curl_abc[2];
+
+                        double div_val_t = grad_La[3]*curl_bcd[3] - grad_Lb[3]*curl_cda[3] + grad_Lc[3]*curl_dab[3] - grad_Ld[3]*curl_abc[3];
+                        
+                        // Div value
+                        double div_vec = div_val_x + div_val_y + div_val_z + div_val_t;
+                        
                         
                         // Add Divergence of Funtion
-                        divu(o++) = (x_comp * scalar_val_x) + (y_comp * scalar_val_y) + (z_comp * scalar_val_z) + (t_comp * scalar_val_t);
+                        divu(o++) = (dscalar_x * vec_val_x + dscalar_y * vec_val_y + dscalar_z * vec_val_z + dscalar_t * vec_val_t) + (div_vec * Scalar);
 
                     }
                 }
@@ -18714,12 +18449,12 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             std::vector<double> Jacobi_l_dt;
                             poly1d.CalcScaledJacobiDerivative(l, alpha, x, y, Jacobi_l_ref, Jacobi_l_dx, Jacobi_l_dt);
                             
-                            // Int Jacobi Poly
+                            //  Int Jacobi Poly
                             alpha = 2.0*(i+j+l)+3.0;
                             x = Le;
                             y = 1.0;
                             std::vector<double> Int_Jacobi_m;
-                            poly1d.CalcJacobi(m, x, y, alpha, Int_Jacobi_m);
+                            poly1d.CalcIntJacobi(m, x, y, alpha, Int_Jacobi_m);
                             // Derivative Int Jacobi Poly
                             std::vector<double> Int_Jacobi_m_dx; // Use i-1 polynomial
                             x = Le;
@@ -18733,52 +18468,76 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             std::vector<double> curl_dab = four_cross(d,a,b);
                             std::vector<double> curl_abc = four_cross(a,b,c);
                             
-                            // X component of Divergence
-                            double x_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[0] + grad_Lb[0]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
+                            
+                            // Basis Functions can be decomposed into vector and scalar parts
+
+                            // Scalar Part
+                            double Scalar = Legendre_i[Legendre_i.size()-1] * Jacobi_j[Jacobi_j.size()-1] * Jacobi_l[Jacobi_l.size()-1] * Int_Jacobi_m[Int_Jacobi_m.size()-1];
+                            
+                            // d scalar / dx
+                            double dscalar_x = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[0] + grad_Lb[0]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[0] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[0] + grad_Lb[0] + grad_Lc[0]))*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[0] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[0] + grad_Lb[0] + grad_Lc[0] + grad_Ld[0]))*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
-                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-1]*grad_Le[0]);
-                            
-                            double scalar_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
-                            
-                            // Y component of Divergence
-                            double y_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[1] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[1] + grad_Lb[1]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
+                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-2]*grad_Le[0]);
+                                                        
+                            // d scalar / dy
+                            double dscalar_y = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[1] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[1] + grad_Lb[1]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[1] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1]))*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[1] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1] + grad_Ld[1]))*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
-                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-1]*grad_Le[1]);
+                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-2]*grad_Le[1]);
                             
-                            double scalar_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
                             
-                            // Z component of Divergence
-                            double z_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[2] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[2] + grad_Lb[2]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
+                            // d scalar / dz
+                            double dscalar_z = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[2] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[2] + grad_Lb[2]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[2] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[2] + grad_Lb[2] + grad_Lc[2]))*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[2] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[2] + grad_Lb[2] + grad_Lc[2] + grad_Ld[2]))*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
-                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-1]*grad_Le[2]);
+                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-2]*grad_Le[2]);
                             
-                            double scalar_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
                             
-                            // T component of Divergence
-                            double t_comp = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
+                            // d scalar / dt
+                            double dscalar_t = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[3] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3]))*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[3] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3] + grad_Ld[3]))*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
-                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-1]*grad_Le[3]);
+                                Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*(Int_Jacobi_m_dx[Int_Jacobi_m_dx.size()-2]*grad_Le[3]);
                             
-                            double scalar_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
+                            // components of vectors part
+                            double vec_val_x = La*curl_bcd[0] - Lb*curl_cda[0] + Lc*curl_dab[0] - Ld*curl_abc[0];
+                            
+                            double vec_val_y = La*curl_bcd[1] - Lb*curl_cda[1] + Lc*curl_dab[1] - Ld*curl_abc[1];
+
+                            double vec_val_z = La*curl_bcd[2] - Lb*curl_cda[2] + Lc*curl_dab[2] - Ld*curl_abc[2];
+
+                            double vec_val_t = La*curl_bcd[3] - Lb*curl_cda[3] + Lc*curl_dab[3] - Ld*curl_abc[3];
+                            
+                            // Each term of div(vector)
+                            double div_val_x = grad_La[0]*curl_bcd[0] - grad_Lb[0]*curl_cda[0] + grad_Lc[0]*curl_dab[0] - grad_Ld[0]*curl_abc[0];
+                            
+                            double div_val_y = grad_La[1]*curl_bcd[1] - grad_Lb[1]*curl_cda[1] + grad_Lc[1]*curl_dab[1] - grad_Ld[1]*curl_abc[1];
+
+                            double div_val_z = grad_La[2]*curl_bcd[2] - grad_Lb[2]*curl_cda[2] + grad_Lc[2]*curl_dab[2] - grad_Ld[2]*curl_abc[2];
+
+                            double div_val_t = grad_La[3]*curl_bcd[3] - grad_Lb[3]*curl_cda[3] + grad_Lc[3]*curl_dab[3] - grad_Ld[3]*curl_abc[3];
+                            
+                            // Div value
+                            double div_vec = div_val_x + div_val_y + div_val_z + div_val_t;
+                            
                             
                             // Add Divergence of Funtion
-                            divu(o++) = (x_comp * scalar_val_x) + (y_comp * scalar_val_y) + (z_comp * scalar_val_z) + (t_comp * scalar_val_t);
+                            divu(o++) = (dscalar_x * vec_val_x + dscalar_y * vec_val_y + dscalar_z * vec_val_z + dscalar_t * vec_val_t) + (div_vec * Scalar);
+                            
+                            
 
                         }
                     }
@@ -18787,41 +18546,6 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
         }
     }// End of Interiors
     
-    
-   /*
-   poly1d.CalcBasis(p, ip.x, shape_x, dshape_x);
-   poly1d.CalcBasis(p, ip.y, shape_y, dshape_y);
-   poly1d.CalcBasis(p, ip.z, shape_z, dshape_z);
-   poly1d.CalcBasis(p, ip.t, shape_t, dshape_t);
-   poly1d.CalcBasis(p, 1. - ip.x - ip.y - ip.z - ip.t, shape_l, dshape_l);
-
-   int o = 0;
-   for (int m = 0; m <= p; m++)
-      for (int k = 0; k + m <= p; k++)
-         for (int j = 0; j + k + m <= p; j++)
-            for (int i = 0; i + j + k + m <= p; i++)
-            {
-               int l = p - i - j - k - m;
-               divu(o++) = (dshape_x(i)*shape_l(l) -
-                            shape_x(i)*dshape_l(l))*shape_y(j)*shape_z(k)*shape_t(m);
-               divu(o++) = (dshape_y(j)*shape_l(l) -
-                            shape_y(j)*dshape_l(l))*shape_x(i)*shape_z(k)*shape_t(m);
-               divu(o++) = (dshape_z(k)*shape_l(l) -
-                            shape_z(k)*dshape_l(l))*shape_x(i)*shape_y(j)*shape_t(m);
-               divu(o++) = (dshape_t(m)*shape_l(l) -
-                            shape_t(m)*dshape_l(l))*shape_x(i)*shape_y(j)*shape_z(k);
-            }
-   for (int l = 0; l <= p; l++)
-      for (int j = 0; j + l<= p; j++)
-         for (int i = 0; i + j + l <= p; i++)
-         {
-            int k = p - i - j - l;
-            divu(o++) =
-               (shape_x(i) + (ip.x - c)*dshape_x(i))*shape_y(j)*shape_z(l)*shape_t(k) +
-               (shape_y(j) + (ip.y - c)*dshape_y(j))*shape_x(i)*shape_z(l)*shape_t(k) +
-               (shape_z(l) + (ip.z - c)*dshape_z(l))*shape_x(i)*shape_y(j)*shape_t(k) +
-               (shape_t(k) + (ip.t - c)*dshape_t(k))*shape_x(i)*shape_y(j)*shape_z(l);
-         }*/
 
    Ti.Mult(divu, divshape);
     //std::cout << "Made it divshape" << std::endl;

@@ -184,6 +184,7 @@ public:
    /// Variable order version of DofOrderForOrientation
    const int * GetDofOrdering(Geometry::Type geom, int p, int ori) const
    {
+       //std::cout << "InsideGetDofOrdering" << std::endl;
       if (p == base_p) { return DofOrderForOrientation(geom, ori); }
       if (p >= var_orders.Size() || !var_orders[p]) { InitVarOrder(p); }
       return var_orders[p]->DofOrderForOrientation(geom, ori);
@@ -276,6 +277,47 @@ public:
    H1_Trace_FECollection(const int p, const int dim,
                          const int btype = BasisType::GaussLobatto);
 };
+
+/// Arbitrary order H(skwgrad)-conforming  finite elements.
+class SkwGrad_FECollection : public FiniteElementCollection
+{
+protected:
+   int ob_type; // open BasisType
+   char SkwGrad_name[32];
+   FiniteElement *SkwGrad_Elements[Geometry::NumGeom];
+   int SkwGrad_dof[Geometry::NumGeom];
+   int *SegDofOrd[2], *TriDofOrd[6], *QuadDofOrd[8], *TetDofOrd[24];
+
+   // Initialize only the face elements  **Needs edits
+   void InitFaces(const int order, const int dim, const int map_type,
+                  const bool signs);
+
+   // Constructor used by the constructor of the RT_Trace_FECollection and
+   // DG_Interface_FECollection classes
+   //RT_FECollection(const int order, const int dim, const int map_type,
+                   //const bool signs,
+                   //const int ob_type = BasisType::GaussLegendre);
+
+public:
+   /** Construct an SkwGrad<order> collection. */
+   SkwGrad_FECollection(const int order, const int dim,
+                   const int cb_type = BasisType::GaussLobatto,
+                   const int ob_type = BasisType::GaussLegendre);
+
+   virtual const FiniteElement *FiniteElementForGeometry(
+      Geometry::Type GeomType) const
+   { return SkwGrad_Elements[GeomType]; }
+   virtual int DofForGeometry(Geometry::Type GeomType) const
+   { return SkwGrad_dof[GeomType]; }
+   virtual const int *DofOrderForOrientation(Geometry::Type GeomType,
+                                             int Or) const;
+   virtual const char *Name() const { return SkwGrad_name; }
+   virtual int GetContType() const { return NORMAL; }
+   //FiniteElementCollection *GetTraceCollection() const;
+
+   virtual ~SkwGrad_FECollection();
+};
+
 
 /// Arbitrary order "L2-conforming" discontinuous finite elements.
 class L2_FECollection : public FiniteElementCollection

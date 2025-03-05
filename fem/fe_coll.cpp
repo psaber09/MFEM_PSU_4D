@@ -467,6 +467,7 @@ void FiniteElementCollection::SubDofOrder(Geometry::Type Geom, int SDim,
                                           int Info,
                                           Array<int> &dofs) const
 {
+    std::cout<< "Inside SubDofOrder" << std::endl;
    // Info = 64 * SubIndex + SubOrientation
    MFEM_ASSERT(0 <= Geom && Geom < Geometry::NumGeom,
                "invalid Geom = " << Geom);
@@ -2458,6 +2459,7 @@ const int *H1_FECollection::DofOrderForOrientation(Geometry::Type GeomType,
    }
    else if (GeomType == Geometry::TETRAHEDRON)
    {
+      //std::cout << "InsideDofOrderForOrient" << std::endl;
       return TetDofOrd[Or%24];
    }   
    else if (GeomType == Geometry::PENTATOPE)
@@ -2542,6 +2544,318 @@ H1_Trace_FECollection::H1_Trace_FECollection(const int p, const int dim,
                (int)BasisType::GetChar(btype), dim, p);
    }
 }
+
+SkwGrad_FECollection::SkwGrad_FECollection(const int order, const int dim,
+                                 const int cb_type, const int ob_type)
+   : FiniteElementCollection(order + 1)
+   , ob_type(ob_type)
+{
+   int p = order;
+   MFEM_VERIFY(p >= 0, "RT_FECollection requires order >= 0.");
+
+   int cp_type = BasisType::GetQuadrature1D(cb_type);
+   int op_type = BasisType::GetQuadrature1D(ob_type);
+
+   if (Quadrature1D::CheckClosed(cp_type) == Quadrature1D::Invalid)
+   {
+      const char *cb_name = BasisType::Name(cb_type); // this may abort
+      MFEM_ABORT("unknown closed BasisType: " << cb_name);
+   }
+   if (Quadrature1D::CheckOpen(op_type) == Quadrature1D::Invalid)
+   {
+      const char *ob_name = BasisType::Name(ob_type); // this may abort
+      MFEM_ABORT("unknown open BasisType: " << ob_name);
+   }
+
+   InitFaces(p, dim, FiniteElement::INTEGRAL, true);
+
+   if (cb_type == BasisType::GaussLobatto &&
+       ob_type == BasisType::GaussLegendre)
+   {
+      snprintf(SkwGrad_name, 32, "RT_%dD_P%d", dim, p);
+   }
+   else
+   {
+      snprintf(SkwGrad_name, 32, "RT@%c%c_%dD_P%d", (int)BasisType::GetChar(cb_type),
+               (int)BasisType::GetChar(ob_type), dim, p);
+   }
+
+   const int pp1 = p + 1;
+   if (dim == 2)
+   {
+       // H(Skwgrad) does not exist for dim = 2
+   }
+   else if (dim == 3)
+   {
+       // H(Skwgrad) does not exist for dim = 3
+
+   }
+   else if (dim == 4)
+   {
+      SkwGrad_Elements[Geometry::PENTATOPE] = new HSkwGrad_PentatopeElement(p);
+       
+      SkwGrad_dof[Geometry::PENTATOPE] = p*pp1*(p + 2)*(p + 3)/6;  // needs corrected
+
+   }
+   else
+   {
+      MFEM_ABORT("invalid dim = " << dim);
+   }
+}
+
+// This is a special protected constructor only used by RT_Trace_FECollection
+// and DG_Interface_FECollection
+//RT_FECollection::RT_FECollection(const int order, const int dim,
+//                                 const int map_type, const bool signs,
+//                                 const int ob_type)
+//   : FiniteElementCollection(order + 1)
+//   , ob_type(ob_type)
+//{
+//   if (Quadrature1D::CheckOpen(BasisType::GetQuadrature1D(ob_type)) ==
+//       Quadrature1D::Invalid)
+//   {
+//      const char *ob_name = BasisType::Name(ob_type); // this may abort
+//      MFEM_ABORT("Invalid open basis type: " << ob_name);
+//   }
+//   InitFaces(order, dim, map_type, signs);
+//}
+
+void SkwGrad_FECollection::InitFaces(const int order, const int dim,
+                                const int map_type,
+                                const bool signs)
+{
+   int p = order;
+   int op_type = BasisType::GetQuadrature1D(ob_type);
+
+   MFEM_VERIFY(Quadrature1D::CheckOpen(op_type) != Quadrature1D::Invalid,
+               "invalid open point type");
+
+   const int pp1 = p + 1, pp2 = p + 2, pp3 = p + 3;
+
+   for (int g = 0; g < Geometry::NumGeom; g++)
+   {
+      SkwGrad_Elements[g] = NULL;
+      SkwGrad_dof[g] = 0;
+   }
+   // Degree of Freedom orderings
+   for (int i = 0; i < 2; i++)
+   {
+      SegDofOrd[i] = NULL;
+   }
+   for (int i = 0; i < 6; i++)
+   {
+      TriDofOrd[i] = NULL;
+   }
+   for (int i = 0; i < 8; i++)
+   {
+      QuadDofOrd[i] = NULL;
+   }
+   for (int i = 0; i < 24; i++)
+   {
+      TetDofOrd[i] = NULL;
+   }
+
+   if (dim == 2)
+   {
+      L2_SegmentElement *l2_seg = new L2_SegmentElement(p, ob_type);
+      l2_seg->SetMapType(map_type);
+      SkwGrad_Elements[Geometry::SEGMENT] = l2_seg;
+      SkwGrad_dof[Geometry::SEGMENT] = pp1;
+
+      SegDofOrd[0] = new int[2*pp1];
+      SegDofOrd[1] = SegDofOrd[0] + pp1;
+      for (int i = 0; i <= p; i++)
+      {
+         SegDofOrd[0][i] = i;
+         SegDofOrd[1][i] = signs ? (-1 - (p - i)) : (p - i);
+      }
+   }
+   else if (dim == 3)
+   {
+      L2_TriangleElement *l2_tri = new L2_TriangleElement(p, ob_type);
+      l2_tri->SetMapType(map_type);
+      SkwGrad_Elements[Geometry::TRIANGLE] = l2_tri;
+      SkwGrad_dof[Geometry::TRIANGLE] = pp1*pp2/2;
+
+      int TriDof = SkwGrad_dof[Geometry::TRIANGLE];
+      TriDofOrd[0] = new int[6*TriDof];
+      for (int i = 1; i < 6; i++)
+      {
+         TriDofOrd[i] = TriDofOrd[i-1] + TriDof;
+      }
+      // see Mesh::GetTriOrientation in mesh/mesh.cpp,
+      // the constructor of H1_FECollection
+      for (int j = 0; j <= p; j++)
+      {
+         for (int i = 0; i + j <= p; i++)
+         {
+            int o = TriDof - ((pp2 - j)*(pp1 - j))/2 + i;
+            int k = p - j - i;
+            TriDofOrd[0][o] = o; // (0,1,2)
+            TriDofOrd[1][o] = -1-(TriDof-((pp2-j)*(pp1-j))/2+k);  // (1,0,2)
+            TriDofOrd[2][o] =     TriDof-((pp2-i)*(pp1-i))/2+k;   // (2,0,1)
+            TriDofOrd[3][o] = -1-(TriDof-((pp2-k)*(pp1-k))/2+i);  // (2,1,0)
+            TriDofOrd[4][o] =     TriDof-((pp2-k)*(pp1-k))/2+j;   // (1,2,0)
+            TriDofOrd[5][o] = -1-(TriDof-((pp2-i)*(pp1-i))/2+j);  // (0,2,1)
+            if (!signs)
+            {
+               for (int k = 1; k < 6; k += 2)
+               {
+                  TriDofOrd[k][o] = -1 - TriDofOrd[k][o];
+                  std::cout << "Inside IF statement" << std::endl;
+               }
+            }
+         }
+      }
+
+   }
+   else if (dim == 4)
+   {
+      L2_TetrahedronElement *l2_tet = new L2_TetrahedronElement(p, ob_type);
+      l2_tet->SetMapType(map_type);
+      SkwGrad_Elements[Geometry::TETRAHEDRON] = l2_tet;
+      SkwGrad_dof[Geometry::TETRAHEDRON] = pp1*pp2*pp3/6;
+
+      int TetDof = SkwGrad_dof[Geometry::TETRAHEDRON];
+      //std::cout << "TetDof = " << TetDof << " p = " << p << std::endl;
+      int TriDof2 = pp2*pp1/2;
+      TetDofOrd[0] = new int[24*TetDof];
+      for (int i = 1; i < 24; i++)
+      {
+         TetDofOrd[i] = TetDofOrd[i-1] + TetDof;
+      }
+      // see Mesh::GetTriOrientation in mesh/mesh.cpp,
+      // the constructor of H1_FECollection
+      for (int k=0; k<=p; k++)
+      {
+         for (int j=0; j+k<=p; j++)
+         {
+            for (int i=0; i+j+k<=p; i++)
+            {
+               int o = TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 - (pp2-j)*
+                       (pp1-j)/2 - k*j + i;
+               //std::cout << "o = " << o << std::endl;
+               //std::cout << "i = " << i << "j = " << j << "k = " << k << std::endl;
+
+               int l = p-k-j-i;
+               TetDofOrd[0][o] = o;
+                
+               TetDofOrd[1][o] = -1 - (TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-k)*(pp1-k)/2 - j*k + i);
+                
+               TetDofOrd[2][o] =       TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-k)*(pp1-k)/2 - i*k + j;
+                
+               TetDofOrd[3][o] =  -1 - (TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 -
+                                         (pp2-i)*(pp1-i)/2 - k*i + j);
+                
+               TetDofOrd[4][o] =        TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-i)*(pp1-i)/2 - j*i + k;
+                
+               TetDofOrd[5][o] = -1 - (TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-j)*(pp1-j)/2 - i*j + k);
+                
+               TetDofOrd[6][o] =        TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 -
+                                         (pp2-l)*(pp1-l)/2 - k*l + j;
+                
+               TetDofOrd[7][o] = -1 - (TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-k)*(pp1-k)/2 - l*k + j);
+                
+               TetDofOrd[8][o] =       TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-j)*(pp1-j)/2 - l*j + k;
+                
+               TetDofOrd[9][o] =  -1 - (TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-l)*(pp1-l)/2 - j*l + k);
+                
+               TetDofOrd[10][o] =       TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-k)*(pp1-k)/2 - j*k + l;
+            
+               TetDofOrd[11][o] =  -1 - (TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 -
+                                        (pp2-j)*(pp1-j)/2 - k*j + l);
+                
+               TetDofOrd[12][o] =        TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-l)*(pp1-l)/2 - i*l + k;
+                
+               TetDofOrd[13][o] =  -1 - (TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-i)*(pp1-i)/2 - l*i + k);
+                
+               TetDofOrd[14][o] =        TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 -
+                                        (pp2-i)*(pp1-i)/2 - k*i + l;
+                
+               TetDofOrd[15][o] = -1 - (TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-k)*(pp1-k)/2 - i*k + l);
+                
+               TetDofOrd[16][o] =       TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-k)*(pp1-k)/2 - l*k + i;
+                
+               TetDofOrd[17][o] =  -1 - (TetDof + TriDof2 - ((pp3-k)*(pp2-k)*(pp1-k))/6 -
+                                        (pp2-l)*(pp1-l)/2 - k*l + i);
+                
+               TetDofOrd[18][o] =       TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-j)*(pp1-j)/2 - i*j + l;
+                
+               TetDofOrd[19][o] = -1 - (TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-i)*(pp1-i)/2 - j*i + l);
+                
+               TetDofOrd[20][o] =       TetDof + TriDof2 - ((pp3-j)*(pp2-j)*(pp1-j))/6 -
+                                         (pp2-l)*(pp1-l)/2 - j*l + i;
+                
+               TetDofOrd[21][o] = -1 - (TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-j)*(pp1-j)/2 - l*j + i);
+                
+               TetDofOrd[22][o] =       TetDof + TriDof2 - ((pp3-l)*(pp2-l)*(pp1-l))/6 -
+                                         (pp2-i)*(pp1-i)/2 - l*i + j;
+                
+               TetDofOrd[23][o] = -1 - (TetDof + TriDof2 - ((pp3-i)*(pp2-i)*(pp1-i))/6 -
+                                         (pp2-l)*(pp1-l)/2 - i*l + j);
+                
+               if (!signs)
+               {
+                  for (int m = 0; m < 24; m+=2)
+                  {
+                     TetDofOrd[m][o] = -1 - TetDofOrd[m][o];
+                     std::cout << "Inside IF statement" << std::endl;
+
+                  }
+               }
+            }
+         }
+      }
+   }
+}
+
+const int *SkwGrad_FECollection::DofOrderForOrientation(Geometry::Type GeomType,
+                                                   int Or) const
+{
+   if (GeomType == Geometry::SEGMENT)
+   {
+      return (Or > 0) ? SegDofOrd[0] : SegDofOrd[1];
+   }
+   else if (GeomType == Geometry::TRIANGLE)
+   {
+      return TriDofOrd[Or%6];
+   }
+   else if (GeomType == Geometry::SQUARE)
+   {
+      return QuadDofOrd[Or%8];
+   }
+   else if (GeomType == Geometry::TETRAHEDRON)
+   {
+      return TetDofOrd[Or%24];
+   }
+   return NULL;
+}
+
+SkwGrad_FECollection::~SkwGrad_FECollection()
+{
+   delete [] SegDofOrd[0];
+   delete [] TriDofOrd[0];
+   for (int g = 0; g < Geometry::NumGeom; g++)
+   {
+      delete SkwGrad_Elements[g];
+   }
+}
+
 
 
 L2_FECollection::L2_FECollection(const int p, const int dim, const int btype,

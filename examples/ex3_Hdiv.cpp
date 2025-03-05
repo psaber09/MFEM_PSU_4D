@@ -49,10 +49,13 @@ using namespace std;
 using namespace mfem;
 
 // Exact solution, E, and r.h.s., f. See below for implementation.
-void E_exact(const Vector &, Vector &);
+//void E_exact(const Vector &, Vector &);
 void Q_exact(const Vector &, Vector &);
-void f_exact(const Vector &, Vector &);
-double freq = 1.0, kappa;
+void E_exact(const Vector &);
+double f_exact(const Vector &);
+//void f_exact(const Vector &, Vector &);
+double freq = 1.0;
+double kappa = 1.0;
 int dim;
 
 int main(int argc, char *argv[])
@@ -125,8 +128,35 @@ int main(int argc, char *argv[])
    FiniteElementSpace *fespace = new FiniteElementSpace(mesh, fec);
    cout << "Number of finite element unknowns: "
         << fespace->GetTrueVSize() << endl;
+    
+    // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
+       //    In this example, the boundary conditions are defined by marking all
+       //    the boundary attributes from the mesh as essential (Dirichlet) and
+       //    converting them to a list of true dofs.
+       Array<int> ess_tdof_list;
+       if (mesh->bdr_attributes.Size())
+       {
+          Array<int> ess_bdr(mesh->bdr_attributes.Max());
+          ess_bdr = 1;
+          fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+       }
 
-   
+   // 7. Set up the linear form b(.) which corresponds to the right-hand side
+   //    of the FEM linear system, which in this case is (f,phi_i) where f is
+   //    given by the function f_exact and phi_i are the basis functions in the
+   //    finite element fespace.
+//    VectorFunctionCoefficient f(sdim, f_exact);
+//    LinearForm *b = new LinearForm(fespace);
+//    b->AddDomainIntegrator(new VectorFEDomainLFIntegrator(f));
+//    b->Assemble();
+    
+    FunctionCoefficient f(f_exact);
+    LinearForm *b = new LinearForm(fespace);
+    b->AddDomainIntegrator(new DomainLFIntegrator(f));
+    b->Assemble();
+    
+    ConstantCoefficient one(1.0);
+
 
    // 8. Define the solution vector x as a finite element grid function
    //    corresponding to fespace. Initialize x by projecting the exact
@@ -145,8 +175,94 @@ int main(int argc, char *argv[])
        irs[i] = &(IntRules.Get(i, 12));
 
      // 8a. Compute and print the L^2 norm of the error.
-    cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
-    cout << "Made it" << endl;
+    //cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
+    
+    // 9. Set up the bilinear form corresponding to the EM diffusion operator
+     //    curl muinv curl + sigma I, by adding the curl-curl and the mass domain
+     //    integrators.
+     //Coefficient *muinv = new ConstantCoefficient(1.0);
+     //Coefficient *sigma = new ConstantCoefficient(1.0);
+     BilinearForm *a = new BilinearForm(fespace);
+     if (pa) { a->SetAssemblyLevel(AssemblyLevel::PARTIAL); }
+     //a->AddDomainIntegrator(new CurlCurlIntegrator(*muinv));
+     //a->AddDomainIntegrator(new VectorFEMassIntegrator(*sigma));
+    a->AddDomainIntegrator(new MixedScalarDivergenceIntegrator(one));
+    //a->AddDomainIntegrator(new VectorFEDivergenceIntegrator(one));
+    
+    // 10. Assemble the bilinear form and the corresponding linear system,
+    //     applying any necessary transformations such as: eliminating boundary
+    //     conditions, applying conforming constraints for non-conforming AMR,
+    //     static condensation, etc.
+    if (static_cond) { a->EnableStaticCondensation(); }
+    a->Assemble();
+
+    OperatorPtr A;
+    Vector B, X;
+    a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B);
+
+    cout << "Size of linear system: " << A->Height() << endl;
+
+    // 11. Solve the linear system A X = B.
+    if (pa) // Jacobi preconditioning in partial assembly mode
+    {
+       OperatorJacobiSmoother M(*a, ess_tdof_list);
+       PCG(*A, M, B, X, 1, 1000, 1e-12, 0.0);
+    }
+    else
+    {
+ #ifndef MFEM_USE_SUITESPARSE
+       // 11. Define a simple symmetric Gauss-Seidel preconditioner and use it to
+       //     solve the system Ax=b with PCG.
+       GSSmoother M((SparseMatrix&)(*A));
+       PCG(*A, M, B, X, 1, 500, 1e-12, 0.0);
+ #else
+       // 11. If MFEM was compiled with SuiteSparse, use UMFPACK to solve the
+       //     system.
+       UMFPackSolver umf_solver;
+       umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
+       umf_solver.SetOperator(*A);
+       umf_solver.Mult(B, X);
+ #endif
+    }
+
+    // 12. Recover the solution as a finite element grid function.
+    a->RecoverFEMSolution(X, *b, x);
+
+    // 13. Compute and print the L^2 norm of the error.
+    cout << "\n|| E_h - E ||_{L^2} = " << x.ComputeL2Error(Q,irs) << '\n' << endl;
+
+    // 14. Save the refined mesh and the solution. This output can be viewed
+    //     later using GLVis: "glvis -m refined.mesh -g sol.gf".
+    {
+       ofstream mesh_ofs("refined.mesh");
+       mesh_ofs.precision(8);
+       mesh->Print(mesh_ofs);
+       ofstream sol_ofs("sol.gf");
+       sol_ofs.precision(8);
+       x.Save(sol_ofs);
+    }
+
+    // 15. Send the solution by socket to a GLVis server.
+    if (visualization)
+    {
+       char vishost[] = "localhost";
+       int  visport   = 19916;
+       socketstream sol_sock(vishost, visport);
+       sol_sock.precision(8);
+       sol_sock << "solution\n" << *mesh << x << flush;
+    }
+
+    // 16. Free the used memory.
+    delete a;
+    //delete sigma;
+    //delete muinv;
+    delete b;
+    delete fespace;
+    delete fec;
+    delete mesh;
+
+//    return 0;
+// }
 
 
    return 0;
@@ -177,11 +293,6 @@ void Q_exact(const Vector &x, Vector &Q)
       Q(1) = sin(kappa * x(2));
       Q(2) = sin(kappa * x(3));
       Q(3) = sin(kappa * x(0));
-//        Q(0) = x(0) * x(1) * x(3) * x(4);
-//        Q(1) = x(0) * x(1) * x(3) * x(4);
-//        Q(2) = x(0) * x(1) * x(3) * x(4);
-//        Q(3) = x(0) * x(1) * x(3) * x(4);
-
 
    }
   if (dim == 3)
@@ -197,18 +308,46 @@ void Q_exact(const Vector &x, Vector &Q)
    }
 }
 
-void f_exact(const Vector &x, Vector &f)
+//void f_exact(const Vector &x, Vector &f)
+//{
+//   if (dim == 3)
+//   {
+//      f(0) = (1. + kappa * kappa) * sin(kappa * x(1));
+//      f(1) = (1. + kappa * kappa) * sin(kappa * x(2));
+//      f(2) = (1. + kappa * kappa) * sin(kappa * x(0));
+//   }
+//   if (dim == 4)
+//   {
+//
+//       
+//   }
+//   else
+//   {
+//      f(0) = (1. + kappa * kappa) * sin(kappa * x(1));
+//      f(1) = (1. + kappa * kappa) * sin(kappa * x(0));
+//      if (x.Size() == 3) { f(2) = 0.0; }
+//   }
+//}
+double f_exact(const Vector &x)
 {
-   if (dim == 3)
-   {
-      f(0) = (1. + kappa * kappa) * sin(kappa * x(1));
-      f(1) = (1. + kappa * kappa) * sin(kappa * x(2));
-      f(2) = (1. + kappa * kappa) * sin(kappa * x(0));
-   }
-   else
-   {
-      f(0) = (1. + kappa * kappa) * sin(kappa * x(1));
-      f(1) = (1. + kappa * kappa) * sin(kappa * x(0));
-      if (x.Size() == 3) { f(2) = 0.0; }
-   }
+    double f_out;
+
+    if (dim == 2)
+    {
+        f_out = cos(kappa * x(1)) + cos(kappa * x(0));
+    }
+    
+    if (dim == 3)
+    {
+        f_out = cos(kappa * x(1)) + cos(kappa * x(2)) + cos(kappa * x(0));
+
+    }
+    
+    if (dim == 4)
+    {
+        f_out = cos(kappa * x(1)) + cos(kappa * x(2)) + cos(kappa * x(3)) + cos(kappa * x(0));
+
+    }
+    
+    return f_out;
 }

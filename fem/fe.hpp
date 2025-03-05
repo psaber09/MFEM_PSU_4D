@@ -2687,25 +2687,58 @@ public:
                              DenseMatrix &ddshape) const;
 };
 
-class HSkwGrad_PentatopeElement_Barycentric : public NodalFiniteElement
+class HSkwGrad_PentatopeElement : public VectorFiniteElement
 {
-private:
+   static const double nk[20], c;
+
 #ifndef MFEM_THREAD_SAFE
-    mutable Vector shape_x, shape_y, shape_z, shape_t, shape_l;
-    mutable Vector dshape_x, dshape_y, dshape_z, dshape_t, dshape_l, u;
-    mutable Vector ddshape_x, ddshape_y, ddshape_z, ddshape_t, ddshape_l;
-    mutable DenseMatrix du, ddu;
+   mutable Vector shape_x, shape_y, shape_z, shape_t, shape_l;
+   mutable Vector dshape_x, dshape_y, dshape_z, dshape_t, dshape_l;
+   mutable DenseMatrix u;
+   mutable Vector divu;
 #endif
-    DenseMatrixInverse Ti;
-    
+   Array<int> dof2nk;
+   DenseMatrixInverse Ti;
+
 public:
-    HSkwGrad_PentatopeElement_Barycentric(const int p,
-                                          const int btype = BasisType::GaussLobatto);
-    virtual void CalcShape(const IntegrationPoint &ip, Vector &shape) const;
-    virtual void CalcDShape(const IntegrationPoint &ip,
-                            DenseMatrix &dshape) const;
-    virtual void CalcHessian(const IntegrationPoint &ip,
-                             DenseMatrix &ddshape) const;
+   HSkwGrad_PentatopeElement(const int p);
+   virtual void CalcVShape(const IntegrationPoint &ip,
+                           DenseMatrix &shape) const;
+   virtual void CalcVShape(ElementTransformation &Trans,
+                           DenseMatrix &shape) const
+    {          mfem_error("CalcVShape error");}
+       //CalcVShape_RT(Trans, shape); }
+   virtual void CalcSkwGradShape(const IntegrationPoint &ip,
+                             Vector &divshape) const;
+   virtual void GetLocalInterpolation(ElementTransformation &Trans,
+                                      DenseMatrix &I) const
+       {mfem_error("GetLocalInterpolaton error");}
+       //LocalInterpolation_RT(*this, nk, dof2nk, Trans, I); }
+   virtual void GetLocalRestriction(ElementTransformation &Trans,
+                                    DenseMatrix &R) const
+    {          mfem_error("GetLocalRestriction error");}
+       //LocalRestriction_RT(nk, dof2nk, Trans, R); }
+   virtual void GetTransferMatrix(const FiniteElement &fe,
+                                  ElementTransformation &Trans,
+                                  DenseMatrix &I) const
+    {          mfem_error("GetTransferMatrix error");}
+        //LocalInterpolation_RT(CheckVectorFE(fe), nk, dof2nk, Trans, I); }
+   using FiniteElement::Project;
+   virtual void Project(VectorCoefficient &vc,
+                        ElementTransformation &Trans, Vector &dofs) const
+    {          mfem_error("Project error");}
+       //Project_RT(nk, dof2nk, vc, Trans, dofs); }
+   virtual void ProjectMatrixCoefficient(
+      MatrixCoefficient &mc, ElementTransformation &T, Vector &dofs) const
+    {          mfem_error("ProjectMatrixCoefficient error");}
+        //ProjectMatrixCoefficient_RT(nk, dof2nk, mc, T, dofs); }
+   virtual void Project(const FiniteElement &fe, ElementTransformation &Trans,
+                        DenseMatrix &I) const
+    {          mfem_error("Project error");}
+        //Project_RT(nk, dof2nk, fe, Trans, I); }
+   virtual void ProjectDivSkew(const FiniteElement &fe,
+                               ElementTransformation &Trans,
+                               DenseMatrix &DivSkew);
 };
 
 class Hcurl_PentatopeElement_Barycentric : public NodalFiniteElement

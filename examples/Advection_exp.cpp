@@ -165,13 +165,13 @@ int main(int argc, char *argv[])
     //    In this example, the boundary conditions are defined by marking all
     //    the boundary attributes from the mesh as essential (Dirichlet) and
     //    converting them to a list of true dofs.
-    Array<int> ess_tdof_list;
-    if (mesh->bdr_attributes.Size())
-    {
-        Array<int> ess_bdr(mesh->bdr_attributes.Max());
-        ess_bdr = 1;
-        fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
-    }
+//    Array<int> ess_tdof_list;
+//    if (mesh->bdr_attributes.Size())
+//    {
+//        Array<int> ess_bdr(mesh->bdr_attributes.Max());
+//        ess_bdr = 1;
+//        fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+//    }
     
     // 7. Set up the linear form b(.) which corresponds to the right-hand side
     //    of the FEM linear system, which in this case is (f,phi_i) where f is
@@ -244,12 +244,15 @@ int main(int argc, char *argv[])
    //     applying any necessary transformations such as: eliminating boundary
    //     conditions, applying conforming constraints for non-conforming AMR,
    //     static condensation, etc.
-   if (static_cond) { a->EnableStaticCondensation(); }
+//   if (static_cond) { a->EnableStaticCondensation(); }
    a->Assemble();
 
    OperatorPtr A;
    Vector B, X;
-   a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B); // x = x_ess + X
+    
+   Array<int> empty_tdof_list;
+   a->FormLinearSystem(empty_tdof_list, x, *b, A, X, B);
+   //a->FormLinearSystem(ess_tdof_list, x, *b, A, X, B); // x = x_ess + X
    // A*X = f - A*x_ess = B
 
    cout << "Size of linear system: " << A->Height() << endl;
@@ -445,7 +448,7 @@ double f_exact(const Vector &x)
         // Define du_dz
         double du_dz = (kappa*pi) * sin(kappa*pi*x(0)) * sin(kappa*pi*x(1)) * cos(kappa*pi*x(2));
         
-        f_out = (C * du_dx) + (C * du_dy) + du_dz;
+        f_out = -1.0*((C * du_dx) + (C * du_dy) + du_dz);
 
     }
     
@@ -481,7 +484,7 @@ double f_exact(const Vector &x)
 
 
         //f_out = ((u * dC_dx) + (C * du_dx)) + ((u * dC_dy) + (C * du_dy)) + ((u * dC_dz) + (C * du_dz)) + du_dt;
-        f_out = (C * du_dx) + (C * du_dy) + (C * du_dz) + du_dt;
+        f_out = -1.0*((C * du_dx) + (C * du_dy) + (C * du_dz) + du_dt);
 
     }
     

@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
     GridFunction x(fespace);
     FunctionCoefficient E(E_exact);
     FunctionCoefficient Q(Q_exact);
-    x.ProjectCoefficient(Q);
+    x.ProjectCoefficient(E);
     
     const IntegrationRule* irs[Geometry::NumGeom];
     for (int i = 0; i < Geometry::NumGeom; i++)
@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
  
 
     // 8a. Compute and print the L^2 norm of the error.
-   cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
+   //cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
 
    // 9. Set up the bilinear form a(.,.) on the finite element space
    //    corresponding to the Laplacian operator -Delta, by adding the Diffusion
@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
 
    cout << "Size of linear system: " << A->Height() << endl;
 
-   /*// 11. Solve the linear system A X = B.
+   // 11. Solve the linear system A X = B.
    if (!pa)
    {
 #ifndef MFEM_USE_SUITESPARSE
@@ -265,40 +265,40 @@ int main(int argc, char *argv[])
    else // Jacobi preconditioning in partial assembly mode
    {
        CG(*A, B, X, 1, 400, 1e-12, 0.0);
-   }*/
+   }
     
-    // 11. Solve the linear system A X = B.
-     if (!pa)
-     {
-     #ifndef MFEM_USE_SUITESPARSE
-     // Use GMRES with a Gauss-Seidel preconditioner
-     GSSmoother M((SparseMatrix&)(*A));  // Gauss-Seidel preconditioner
-     GMRESSolver gmres;                  // Create GMRES solver
-     gmres.SetKDim(200);                 // Set the Krylov subspace dimension (restart size)
-     gmres.SetMaxIter(200);              // Set maximum iterations
-     gmres.SetRelTol(1e-12);             // Set relative tolerance
-     gmres.SetPrintLevel(1);             // Print convergence information
-     gmres.SetPreconditioner(M);         // Set the preconditioner
-     gmres.SetOperator(*A);              // Set the operator
-     gmres.Mult(B, X);                   // Solve the system
-     #else
-     // If MFEM was compiled with SuiteSparse, use UMFPACK to solve the system.
-     UMFPackSolver umf_solver;
-     umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
-     umf_solver.SetOperator(*A);
-     umf_solver.Mult(B, X);
-     #endif
-     }
-     else // Jacobi preconditioning in partial assembly mode
-     {
-     GMRESSolver gmres;                  // Create GMRES solver
-     gmres.SetKDim(400);                 // Set the Krylov subspace dimension (restart size)
-     gmres.SetMaxIter(400);              // Set maximum iterations
-     gmres.SetRelTol(1e-12);             // Set relative tolerance
-     gmres.SetPrintLevel(1);             // Print convergence information
-     gmres.SetOperator(*A);              // Set the operator
-     gmres.Mult(B, X);                   // Solve the system
-     }
+//    // 11. Solve the linear system A X = B.
+//     if (!pa)
+//     {
+//     #ifndef MFEM_USE_SUITESPARSE
+//     // Use GMRES with a Gauss-Seidel preconditioner
+//     GSSmoother M((SparseMatrix&)(*A));  // Gauss-Seidel preconditioner
+//     GMRESSolver gmres;                  // Create GMRES solver
+//     gmres.SetKDim(200);                 // Set the Krylov subspace dimension (restart size)
+//     gmres.SetMaxIter(200);              // Set maximum iterations
+//     gmres.SetRelTol(1e-12);             // Set relative tolerance
+//     gmres.SetPrintLevel(1);             // Print convergence information
+//     gmres.SetPreconditioner(M);         // Set the preconditioner
+//     gmres.SetOperator(*A);              // Set the operator
+//     gmres.Mult(B, X);                   // Solve the system
+//     #else
+//     // If MFEM was compiled with SuiteSparse, use UMFPACK to solve the system.
+//     UMFPackSolver umf_solver;
+//     umf_solver.Control[UMFPACK_ORDERING] = UMFPACK_ORDERING_METIS;
+//     umf_solver.SetOperator(*A);
+//     umf_solver.Mult(B, X);
+//     #endif
+//     }
+//     else // Jacobi preconditioning in partial assembly mode
+//     {
+//     GMRESSolver gmres;                  // Create GMRES solver
+//     gmres.SetKDim(400);                 // Set the Krylov subspace dimension (restart size)
+//     gmres.SetMaxIter(400);              // Set maximum iterations
+//     gmres.SetRelTol(1e-12);             // Set relative tolerance
+//     gmres.SetPrintLevel(1);             // Print convergence information
+//     gmres.SetOperator(*A);              // Set the operator
+//     gmres.Mult(B, X);                   // Solve the system
+//     }
 
 
    // 12. Recover the solution as a finite element grid function.
@@ -379,7 +379,7 @@ double Q_exact(const Vector &x)
     
     if (dim == 4)
     {
-        Q_out = x(0)*x(1)*x(2)*x(3)*x(0)*x(1);
+        Q_out = x(0)*x(1)*x(2)*x(3)*x(0);
         
         //Q_out = x(0)*(1. - x(0)) * x(1)*(1. - x(1)) * x(2)*(1. - x(2)) * x(3)*(1. - x(3));
         

@@ -3736,6 +3736,7 @@ std::ostream &operator<<(std::ostream &out, const GridFunction &sol)
 
 void GridFunction::LegacyNCReorder()
 {
+    std::cout << "Inside LegacyNCReorder" << std::endl;
    const Mesh* mesh = fes->GetMesh();
    MFEM_ASSERT(mesh->Nonconforming(), "");
 
