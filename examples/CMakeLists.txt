@@ -18,6 +18,7 @@ list(APPEND ALL_EXE_SRCS
   ex3_Hdiv.cpp
   ex4.cpp
   ex5.cpp
+  ex5_Hdiv_test.cpp
   ex6.cpp
   ex7.cpp
   ex8.cpp

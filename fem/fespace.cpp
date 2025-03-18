@@ -2445,7 +2445,7 @@ static const char* msg_orders_changed =
 
 void FiniteElementSpace::GetElementDofs(int elem, Array<int> &dofs) const
 {
-    //std::cout << "GetElementDofs" << std::endl;
+   //std::cout << "GetElementDofs" << std::endl;
    MFEM_VERIFY(!orders_changed, msg_orders_changed);
 
    if (elem_dof)
@@ -2582,7 +2582,7 @@ const FiniteElement *FiniteElementSpace::GetFE(int i) const
 
 void FiniteElementSpace::GetBdrElementDofs(int bel, Array<int> &dofs) const
 {
-    //std::cout << "GetBdrElementDofs" << std::endl;
+   //std::cout << "GetBdrElementDofs" << std::endl;
    MFEM_VERIFY(!orders_changed, msg_orders_changed);
 
    if (bdr_elem_dof)

@@ -18059,9 +18059,8 @@ void Hdiv_PentatopeElement::CalcVShape(const IntegrationPoint &ip,
 void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                                        Vector &divshape) const
 {
-   const int p = order;
-   std::cout << "p_divCalcShape = " << p << std::endl;
-
+   const int p = order - 1;
+   //std::cout << "Value of p = " << p << std::endl;
 
 #ifdef MFEM_THREAD_SAFE
    Vector shape_x(p + 1),  shape_y(p + 1),  shape_z(p + 1),  shape_l(p + 1);
@@ -18146,16 +18145,16 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
         {
             a = 0;
             b = 1;
-            c = 3;
-            d = 2;
+            c = 2;
+            d = 3;
         }
         else if(f==1)
         {
             // Define Facet
             a = 0;
-            b = 1;
-            c = 4;
-            d = 2;
+            b = 2;
+            c = 1;
+            d = 4;
         }
         // Define each facet
         else if (f==2)
@@ -18171,8 +18170,8 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
         {
             // Define Facet
             a = 0;
-            b = 2;
-            c = 3;
+            b = 3;
+            c = 2;
             d = 4;
         }
         // Define each facet
@@ -18205,12 +18204,15 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
         {
             for(int j=0; j<=p;j++)
             {
-                for(int l=0; 1<=p;l++)
+                for(int l=0; l<=p;l++)
                 {
+                    //std::cout << "i+j+l = " << i+j+l << std::endl;
                     if((i+j+l)<=p)
                     {
                         
                         // compute polynomials
+                        //std::cout << "Inside Shape" << std::endl;
+
                         
                         // Legendre Poly
                         std::vector<double> Legendre_i;
@@ -18265,6 +18267,8 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[0] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[0] + grad_Lb[0] + grad_Lc[0] + grad_Ld[0]));
                         
+                        //std::cout << "dScalar / dx = " << dscalar_x << std::endl;
+                        
                         
                         // d Scalar / dy
                         double dscalar_y = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[1] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[1] + grad_Lb[1]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
@@ -18272,6 +18276,9 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[1] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[1] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[1] + grad_Lb[1] + grad_Lc[1] + grad_Ld[1]));
+                        
+                        //std::cout << "dScalar / dy = " << dscalar_y << std::endl;
+
                         
                         
                         // d Scalar / dz
@@ -18281,6 +18288,9 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[2] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[2] + grad_Lb[2] + grad_Lc[2] + grad_Ld[2]));
                         
+                        //std::cout << "dScalar / dz = " << dscalar_z << std::endl;
+
+                        
                         
                         // d Scalar / dt
                         double dscalar_t = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[3] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1] +
@@ -18288,6 +18298,9 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[3] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3]))*Jacobi_l[Jacobi_l.size()-1] +
                         
                             Legendre_i[Legendre_i.size()-1]*Jacobi_j[Jacobi_j.size()-1]*(Jacobi_l_dx[Jacobi_l_dx.size()-1]*grad_Ld[3] + Jacobi_l_dt[Jacobi_l_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3] + grad_Ld[3]));
+                        
+                        //std::cout << "dScalar / dt = " << dscalar_t << std::endl;
+
                         
                         
                         // components of vectors part
@@ -18342,6 +18355,12 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
             grad_Ld = gradbary_vector[3];
             grad_Le = gradbary_vector[4];
             
+            a = 0;
+            b = 1;
+            c = 2;
+            d = 3;
+            e = 4;
+            
         }
         else if (r==1)
         {
@@ -18359,6 +18378,12 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
             grad_Lc = gradbary_vector[3];
             grad_Ld = gradbary_vector[4];
             grad_Le = gradbary_vector[0];
+            
+            a = 1;
+            b = 2;
+            c = 3;
+            d = 4;
+            e = 0;
             
         }
         else if (r==2)
@@ -18378,6 +18403,12 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
             grad_Ld = gradbary_vector[0];
             grad_Le = gradbary_vector[1];
             
+            a = 2;
+            b = 3;
+            c = 4;
+            d = 0;
+            e = 1;
+            
         }
         else if (r==3)
         {
@@ -18395,6 +18426,12 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
             grad_Lc = gradbary_vector[0];
             grad_Ld = gradbary_vector[1];
             grad_Le = gradbary_vector[2];
+            
+            a = 3;
+            b = 4;
+            c = 0;
+            d = 1;
+            e = 2;
             
         }
         else
@@ -18459,7 +18496,7 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             std::vector<double> Int_Jacobi_m_dx; // Use i-1 polynomial
                             x = Le;
                             y = 1.0;
-                            alpha = 2.0*(i+j+l);
+                            alpha = 2.0*(i+j+l)+3.0; // added + 3.0
                             poly1d.CalcJacobi(m, x, y, alpha, Int_Jacobi_m_dx);
                             
                             //Compute relevant four curl
@@ -18504,7 +18541,7 @@ void Hdiv_PentatopeElement::CalcDivShape(const IntegrationPoint &ip,
                             
                             
                             // d scalar / dt
-                            double dscalar_t = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[0] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
+                            double dscalar_t = (Legendre_i_dx[Legendre_i_dx.size()-1]*grad_Lb[3] + Legendre_i_dt[Legendre_i_dt.size()-1]*(grad_La[3] + grad_Lb[3]))*Jacobi_j[Jacobi_j.size()-1]*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             
                                 Legendre_i[Legendre_i.size()-1]*(Jacobi_j_dx[Jacobi_j_dx.size()-1]*grad_Lc[3] + Jacobi_j_dt[Jacobi_j_dt.size()-1]*(grad_La[3] + grad_Lb[3] + grad_Lc[3]))*Jacobi_l[Jacobi_l.size()-1]*Int_Jacobi_m[Int_Jacobi_m.size()-1] +
                             

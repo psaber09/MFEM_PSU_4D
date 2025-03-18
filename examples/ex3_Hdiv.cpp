@@ -124,11 +124,15 @@ int main(int argc, char *argv[])
 
    // 5. Define a finite element space on the mesh. Here we use the Nedelec
    //    finite elements of the specified order.
-   FiniteElementCollection *fec = new RT_FECollection(order, dim);
-   FiniteElementSpace *fespace = new FiniteElementSpace(mesh, fec);
-   cout << "Number of finite element unknowns: "
-        << fespace->GetTrueVSize() << endl;
+   FiniteElementCollection *fec_rt = new RT_FECollection(order, dim);
+   FiniteElementSpace *fespace_rt = new FiniteElementSpace(mesh, fec_rt);
     
+   FiniteElementCollection *fec_l2 = new DG_FECollection(order, dim);
+   FiniteElementSpace *fespace_l2 = new FiniteElementSpace(mesh, fec_l2);
+   cout << "Number of RT finite element unknowns: "
+        << fespace_rt->GetTrueVSize() << endl;
+    cout << "Number of L2 finite element unknowns: "
+         << fespace_l2->GetTrueVSize() << endl;
     // 6. Determine the list of true (i.e. conforming) essential boundary dofs.
        //    In this example, the boundary conditions are defined by marking all
        //    the boundary attributes from the mesh as essential (Dirichlet) and
@@ -138,7 +142,9 @@ int main(int argc, char *argv[])
        {
           Array<int> ess_bdr(mesh->bdr_attributes.Max());
           ess_bdr = 1;
-          fespace->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+          fespace_rt->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+          //fespace_l2->GetEssentialTrueDofs(ess_bdr, ess_tdof_list);
+
        }
 
    // 7. Set up the linear form b(.) which corresponds to the right-hand side
@@ -151,7 +157,7 @@ int main(int argc, char *argv[])
 //    b->Assemble();
     
     FunctionCoefficient f(f_exact);
-    LinearForm *b = new LinearForm(fespace);
+    LinearForm *b = new LinearForm(fespace_l2);
     b->AddDomainIntegrator(new DomainLFIntegrator(f));
     b->Assemble();
     
@@ -163,7 +169,7 @@ int main(int argc, char *argv[])
    //    solution. Note that only values from the boundary edges will be used
    //    when eliminating the non-homogeneous boundary condition to modify the
    //    r.h.s. vector b.
-   GridFunction x(fespace);
+   GridFunction x(fespace_rt);
    //VectorFunctionCoefficient E(sdim, E_exact);
    //x.ProjectCoefficient(E);
     
@@ -175,14 +181,14 @@ int main(int argc, char *argv[])
        irs[i] = &(IntRules.Get(i, 12));
 
      // 8a. Compute and print the L^2 norm of the error.
-    //cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
+    cout << "\n Initial || E_h - E ||_{L^2} = " << x.ComputeL2Error(Q, irs) << '\n' << endl;
     
-    // 9. Set up the bilinear form corresponding to the EM diffusion operator
+    /*// 9. Set up the bilinear form corresponding to the EM diffusion operator
      //    curl muinv curl + sigma I, by adding the curl-curl and the mass domain
      //    integrators.
      //Coefficient *muinv = new ConstantCoefficient(1.0);
      //Coefficient *sigma = new ConstantCoefficient(1.0);
-     BilinearForm *a = new BilinearForm(fespace);
+     MixedBilinearForm *a = new MixedBilinearForm(fespace_rt, fespace_l2);
      if (pa) { a->SetAssemblyLevel(AssemblyLevel::PARTIAL); }
      //a->AddDomainIntegrator(new CurlCurlIntegrator(*muinv));
      //a->AddDomainIntegrator(new VectorFEMassIntegrator(*sigma));
@@ -193,7 +199,7 @@ int main(int argc, char *argv[])
     //     applying any necessary transformations such as: eliminating boundary
     //     conditions, applying conforming constraints for non-conforming AMR,
     //     static condensation, etc.
-    if (static_cond) { a->EnableStaticCondensation(); }
+    //if (static_cond) { a->EnableStaticCondensation(); }
     a->Assemble();
 
     OperatorPtr A;
@@ -257,9 +263,11 @@ int main(int argc, char *argv[])
     //delete sigma;
     //delete muinv;
     delete b;
-    delete fespace;
-    delete fec;
-    delete mesh;
+    delete fespace_rt;
+    delete fec_rt;
+    delete fespace_l2;
+    delete fec_l2;
+    delete mesh;*/
 
 //    return 0;
 // }
